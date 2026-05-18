@@ -35,7 +35,7 @@ export default function Home() {
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <div className="text-xl mb-2">⚡</div>
             <h3 className="font-semibold text-slate-800 mb-1">Instant Sync</h3>
-            <p className="text-xs text-slate-500">One-click transfer from Clockify Invoice module directly into QuickBooks accounts.</p>
+            <p className="text-xs text-slate-500">One-click transfer from Clockify Invoice module directly into QuickBooks.</p>
           </div>
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <div className="text-xl mb-2">🛡️</div>
