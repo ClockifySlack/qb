@@ -9,39 +9,54 @@ export async function GET(request: NextRequest) {
   const realmId = searchParams.get('realmId');
 
   if (!code || !realmId) {
-    return NextResponse.redirect(new URL('/dashboard?status=error&message=Missing_code_or_realmId', request.url));
+    return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
   }
 
   try {
-    // Probni tokeni za ovaj korak testiranja
-    const dummyAccessToken = "mock_access_" + Math.random().toString(36).substring(7);
-    const dummyRefreshToken = "mock_refresh_" + Math.random().toString(36).substring(7);
+    const clientId = process.env.QB_CLIENT_ID;
+    const clientSecret = process.env.QB_CLIENT_SECRET;
+    const redirectUri = process.env.QB_REDIRECT_URI;
+    const credentials = btoa(`${clientId}:${clientSecret}`);
 
-    // .upsert() pametno rešava problem: ako realm_id postoji, ažurira ga. Ako ne postoji, ubacuje novi.
-    const { data, error: dbError } = await supabase
+    // Razmena autorizacionog koda za prave QuickBooks tokene
+    const response = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: redirectUri!,
+      }),
+    });
+
+    if (!response.ok) {
+      return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
+    }
+
+    const tokens = await response.json();
+
+    const { error: dbError } = await supabase
       .from('qb_connections')
       .upsert(
         {
           realm_id: realmId,
-          access_token: dummyAccessToken,
-          refresh_token: dummyRefreshToken,
-          expires_at: new Date(Date.now() + 3600 * 1000).toISOString()
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString()
         },
-        { onConflict: 'realm_id' } // Kažemo bazi da konflikt gleda po ovom polju
+        { onConflict: 'realm_id' }
       );
 
     if (dbError) {
-      console.error('Supabase DB Error:', dbError);
-      return NextResponse.redirect(
-        new URL(`/dashboard?status=error&message=${encodeURIComponent(dbError.message)}`, request.url)
-      );
+      return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
     }
 
     return NextResponse.redirect(new URL('/dashboard?status=success', request.url));
-  } catch (error: any) {
-    console.error('OAuth Callback Catch Error:', error);
-    return NextResponse.redirect(
-      new URL(`/dashboard?status=error&message=${encodeURIComponent(error.message || 'unknown')}`, request.url)
-    );
+  } catch (error) {
+    return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
   }
 }
