@@ -1,11 +1,11 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function Dashboard() {
+function DashboardContent() {
   const searchParams = useSearchParams();
   const status = searchParams.get('status');
-
   const isError = status === 'error';
 
   return (
@@ -53,5 +53,17 @@ export default function Dashboard() {
 
       </div>
     </div>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen bg-slate-50 font-sans">
+        <div className="text-slate-400 text-sm animate-pulse">Loading connection status...</div>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }
