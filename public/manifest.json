@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.0",
   "key": "clockify-quickbooks-bridge",
   "name": "QuickBooks Payroll Bridge",
   "description": "Automatsko slanje i sinhronizacija faktura i radnih sati direktno u vaš QuickBooks nalog.",
