@@ -1,6 +1,8 @@
+import './globals.css';
+
 export const metadata = {
-  title: 'Clockify to QuickBooks',
-  description: 'QuickBooks integracija za fakture',
+  title: 'QuickBooks Payroll Bridge | CAKE.com Marketplace',
+  description: 'Automatically sync tracked hours and invoices from Clockify directly to QuickBooks.',
 }
 
 export default function RootLayout({
@@ -10,7 +12,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="bg-slate-50 antialiased">{children}</body>
     </html>
   )
 }
