@@ -10,7 +10,6 @@ export default function Settings() {
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error'>>({});
 
-  // 1. Provera da li je korisnik već povezan čim se otvori tab
   useEffect(() => {
     fetch('/api/auth/status')
       .then(res => res.json())
@@ -23,7 +22,6 @@ export default function Settings() {
       .catch(() => setIsCheckingStatus(false));
   }, []);
 
-  // 2. Slušanje poruka iz popupa (za prvi put kad se povezuje)
   useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'QB_CONNECTED') {
@@ -35,32 +33,32 @@ export default function Settings() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
-  // 3. Povlačenje faktura sa jasnim hvatanjem greške
   useEffect(() => {
     if (isConnected) {
       setIsLoadingInvoices(true);
       setInvoiceError(null);
       
-      // POUZDANIJI NAČIN ZA DOHVATANJE WORKSPACE ID-JA IZ IFRAME-A
-      let currentWorkspaceId = null;
-      try {
+      // Pokušavamo standardno čitanje URL parametara
+      const urlParams = new URLSearchParams(window.location.search);
+      let currentWorkspaceId = urlParams.get('workspaceId');
+      
+      // Fallback ako su ga ubacili u putanju umesto u query
+      if (!currentWorkspaceId) {
         const pathSegments = window.location.pathname.split('/');
         const workspaceIndex = pathSegments.indexOf('workspaces');
         if (workspaceIndex !== -1 && pathSegments.length > workspaceIndex + 1) {
             currentWorkspaceId = pathSegments[workspaceIndex + 1];
-        } else {
-             const params = new URLSearchParams(window.location.search);
-             currentWorkspaceId = params.get('workspaceId');
         }
-      } catch (e) {
-          console.error("Greška pri čitanju URL-a:", e);
+      }
+
+      // Ako i dalje nemamo ID, stopiramo sve i ispisujemo URL za debagovanje
+      if (!currentWorkspaceId) {
+          setInvoiceError(`Nedostaje workspaceId. Iframe URL: ${window.location.href}`);
+          setIsLoadingInvoices(false);
+          return;
       }
       
-      const fetchUrl = currentWorkspaceId 
-        ? `/api/clockify/invoices?workspaceId=${currentWorkspaceId}`
-        : '/api/clockify/invoices';
-
-      fetch(fetchUrl)
+      fetch(`/api/clockify/invoices?workspaceId=${currentWorkspaceId}`)
         .then(async (res) => {
           const data = await res.json();
           if (!res.ok) {
@@ -200,9 +198,9 @@ export default function Settings() {
                       </tr>
                     ) : invoiceError ? (
                       <tr>
-                        <td colSpan={4} className="px-6 py-8 text-center bg-rose-50 border-t border-rose-100">
+                        <td colSpan={4} className="px-6 py-8 text-center bg-rose-50 border-t border-rose-100 whitespace-normal">
                           <span className="text-rose-600 font-semibold text-sm block mb-1">Došlo je do greške:</span>
-                          <span className="text-rose-500 text-xs">{invoiceError}</span>
+                          <span className="text-rose-500 text-xs break-words">{invoiceError}</span>
                         </td>
                       </tr>
                     ) : invoices.length === 0 ? (
