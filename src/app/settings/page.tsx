@@ -4,10 +4,26 @@ import { useEffect, useState } from 'react';
 
 export default function Settings() {
   const [isConnected, setIsConnected] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(true); // NOVO: Dok proveravamo bazu
   const [invoices, setInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null); // NOVO: Za hvatanje grešaka
   const [syncStatus, setSyncStatus] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error'>>({});
 
+  // 1. Provera da li je korisnik već povezan čim se otvori tab
+  useEffect(() => {
+    fetch('/api/auth/status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.isConnected) {
+          setIsConnected(true);
+        }
+        setIsCheckingStatus(false);
+      })
+      .catch(() => setIsCheckingStatus(false));
+  }, []);
+
+  // 2. Slušanje poruka iz popupa (za prvi put kad se povezuje)
   useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'QB_CONNECTED') {
@@ -19,12 +35,12 @@ export default function Settings() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
-  // Čim prepozna da je povezan sa QB, vuče prave fakture
+  // 3. Povlačenje faktura sa jasnim hvatanjem greške
   useEffect(() => {
     if (isConnected) {
       setIsLoadingInvoices(true);
+      setInvoiceError(null);
       
-      // Čitamo workspaceId iz URL parametara koje Clockify prosleđuje iframe-u
       const params = new URLSearchParams(window.location.search);
       const currentWorkspaceId = params.get('workspaceId');
       
@@ -33,17 +49,22 @@ export default function Settings() {
         : '/api/clockify/invoices';
 
       fetch(fetchUrl)
-        .then(res => res.json())
-        .then(data => {
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Nepoznata greška sa servera');
+          }
           if (Array.isArray(data)) {
             setInvoices(data);
           } else {
-            console.error('API did not return an array:', data);
+            throw new Error('API nije vratio niz, proveri konzolu.');
           }
-          setIsLoadingInvoices(false);
         })
         .catch(err => {
           console.error('Error fetching invoices:', err);
+          setInvoiceError(err.message); // Ispisujemo grešku u UI!
+        })
+        .finally(() => {
           setIsLoadingInvoices(false);
         });
     }
@@ -73,7 +94,7 @@ export default function Settings() {
           invoiceId,
           invoiceNumber,
           amount,
-          realmId: "9341457104211536" // Tvoj fiksni testni Sandbox Realm ID
+          realmId: "9341457104211536" 
         })
       });
 
@@ -94,7 +115,6 @@ export default function Settings() {
     <div className="bg-white min-h-screen font-sans antialiased text-slate-800">
       <div className="max-w-3xl mx-auto px-4 py-8">
         
-        {/* Header */}
         <div className="flex items-center space-x-2 text-xs text-slate-400 mb-2">
           <span>Add-ons</span>
           <span>/</span>
@@ -102,7 +122,6 @@ export default function Settings() {
         </div>
         <h1 className="text-2xl font-bold text-slate-900 mb-6">Integration Settings</h1>
 
-        {/* OAuth Box */}
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start space-x-4">
             <div className={`p-2.5 rounded-lg font-bold text-lg hidden sm:block ${isConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -110,7 +129,7 @@ export default function Settings() {
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">
-                {isConnected ? 'QuickBooks Connected' : 'QuickBooks Account Authorization'}
+                {isCheckingStatus ? 'Loading status...' : isConnected ? 'QuickBooks Connected' : 'QuickBooks Account Authorization'}
               </h3>
               <p className="text-sm text-slate-500 mt-0.5">
                 {isConnected 
@@ -121,7 +140,11 @@ export default function Settings() {
           </div>
           
           <div className="flex-shrink-0">
-            {isConnected ? (
+            {isCheckingStatus ? (
+              <span className="inline-flex items-center text-sm text-slate-400 animate-pulse">
+                Checking...
+              </span>
+            ) : isConnected ? (
               <span className="inline-flex items-center bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 rounded-lg">
                 ✓ Connected
               </span>
@@ -136,7 +159,6 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Uslovno renderovanje tabele: Prikazuje se samo ako je isConnected TRUE */}
         <div className="border-t border-slate-100 pt-8">
           {isConnected ? (
             <>
@@ -162,6 +184,14 @@ export default function Settings() {
                       <tr>
                         <td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm animate-pulse">
                           Fetching invoices from Clockify...
+                        </td>
+                      </tr>
+                    ) : invoiceError ? (
+                      // OVO NAM JE NAJVAŽNIJI DEO ZA DEBUG!
+                      <tr>
+                        <td colSpan={4} className="px-6 py-8 text-center bg-rose-50 border-t border-rose-100">
+                          <span className="text-rose-600 font-semibold text-sm block mb-1">Došlo je do greške:</span>
+                          <span className="text-rose-500 text-xs">{invoiceError}</span>
                         </td>
                       </tr>
                     ) : invoices.length === 0 ? (
@@ -212,7 +242,6 @@ export default function Settings() {
               </div>
             </>
           ) : (
-            /* Zaključan prikaz kada korisnik nije povezan */
             <div className="bg-slate-50 border border-slate-200 border-dashed rounded-xl p-10 text-center flex flex-col items-center justify-center">
               <span className="text-4xl mb-4 grayscale opacity-50">🔒</span>
               <h3 className="text-sm font-bold text-slate-700 mb-2">Invoices Locked</h3>
