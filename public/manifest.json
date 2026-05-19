@@ -2,7 +2,7 @@
   "schemaVersion": "1.0",
   "key": "clockify-quickbooks-bridge",
   "name": "QuickBooks Payroll Bridge",
-  "description": "Automatically sync and push Clockify invoices directly into your QuickBooks Payroll account.",
+  "description": "Automatsko slanje i sinhronizacija faktura i radnih sati direktno u vaš QuickBooks nalog.",
   "baseUrl": "https://qb-opal.vercel.app",
   "minimalSubscriptionPlan": "STANDARD",
   "scopes": [
@@ -23,9 +23,10 @@
   "settings": "/settings",
   "components": [
     {
-      "type": "send-invoice-to-action",
+      "type": "invoices.action",
       "label": "QuickBooks",
-      "path": "/sync-invoice-modal"
+      "path": "/sync-invoice-modal",
+      "accessLevel": "ADMINS"
     }
   ]
 }
