@@ -11,18 +11,30 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Nedostaje auth_token iz URL-a' }, { status: 400 });
     }
 
-    // Dekodiranje JWT tokena da izvučemo workspaceId
-    // JWT format je: header.payload.signature
     const payloadBase64 = authToken.split('.')[1];
     const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-    const workspaceId = payload.workspaceId || payload.workspace_id;
+    
+    console.log("=== CLOCKIFY TOKEN PAYLOAD ===", JSON.stringify(payload, null, 2));
 
+    const workspaceId = payload.workspaceId || payload.workspace_id;
+    
     if (!workspaceId) {
       return NextResponse.json({ error: 'Nije moguće pročitati workspaceId iz auth_token-a' }, { status: 400 });
     }
 
-    // Šaljemo zahtev ka Clockify API-ju koristeći pravi X-Addon-Token
-    const response = await fetch(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/invoices`, {
+    const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
+    const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    
+    let fetchUrl = '';
+    if (cleanBaseUrl.endsWith('/api')) {
+       fetchUrl = `${cleanBaseUrl}/v1/workspaces/${workspaceId}/invoices`;
+    } else {
+       fetchUrl = `${cleanBaseUrl}/api/v1/workspaces/${workspaceId}/invoices`;
+    }
+
+    console.log("Gađamo Clockify API:", fetchUrl);
+
+    const response = await fetch(fetchUrl, {
       headers: {
         'X-Addon-Token': authToken,
         'Accept': 'application/json'
@@ -30,7 +42,9 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      throw new Error(`Clockify API greška: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error("Clockify API greška detaljno:", errorText);
+      throw new Error(`Unauthorized (401): Token odbijen za ${fetchUrl}`);
     }
 
     const invoices = await response.json();
