@@ -30,7 +30,6 @@ export default function Settings() {
     );
   };
 
-  // Funkcija koja gađa naš novi backend API
   const handleSyncInvoice = async (invoiceId: string, invoiceNumber: string, amount: number) => {
     setSyncStatus(prev => ({ ...prev, [invoiceId]: 'loading' }));
 
@@ -59,7 +58,6 @@ export default function Settings() {
     }
   };
 
-  // Simulirani podaci dok ne povežemo pravi Clockify API
   const mockInvoices = [
     { id: 'inv_1', number: 'INV-2026-001', client: 'Cake.com HQ', amount: 1980.00, date: '19/05/2026' },
     { id: 'inv_2', number: 'INV-2026-002', client: 'Global Tech LLC', amount: 450.50, date: '18/05/2026' }
@@ -111,64 +109,77 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Invoices List UI */}
+        {/* Uslovno renderovanje tabele: Prikazuje se samo ako je isConnected TRUE */}
         <div className="border-t border-slate-100 pt-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-slate-900">Recent Invoices</h2>
-            <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full border border-blue-100">
-              Mock Data Mode
-            </span>
-          </div>
-          
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-            <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                <tr>
-                  <th className="px-6 py-4 font-medium">Invoice No.</th>
-                  <th className="px-6 py-4 font-medium">Client</th>
-                  <th className="px-6 py-4 font-medium">Amount</th>
-                  <th className="px-6 py-4 font-medium text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {mockInvoices.map((inv) => {
-                  const status = syncStatus[inv.id] || 'idle';
-                  return (
-                    <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4 font-medium text-slate-900">{inv.number}</td>
-                      <td className="px-6 py-4 text-slate-600">{inv.client}</td>
-                      <td className="px-6 py-4 font-medium text-slate-900">${inv.amount.toFixed(2)}</td>
-                      <td className="px-6 py-4 text-right">
-                        {status === 'idle' && (
-                          <button 
-                            onClick={() => handleSyncInvoice(inv.id, inv.number, inv.amount)}
-                            className="text-xs font-medium bg-white text-slate-700 hover:text-cyan-600 border border-slate-200 hover:border-cyan-300 px-3 py-1.5 rounded-lg transition-all shadow-sm"
-                          >
-                            Sync to QB
-                          </button>
-                        )}
-                        {status === 'loading' && (
-                          <span className="text-xs font-medium text-slate-400 flex items-center justify-end space-x-1 animate-pulse">
-                            <span>Syncing...</span>
-                          </span>
-                        )}
-                        {status === 'success' && (
-                          <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
-                            ✓ Synced
-                          </span>
-                        )}
-                        {status === 'error' && (
-                          <span className="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">
-                            ✕ Failed
-                          </span>
-                        )}
-                      </td>
+          {isConnected ? (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-slate-900">Recent Invoices</h2>
+                <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full border border-blue-100">
+                  Mock Data Mode
+                </span>
+              </div>
+              
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-left text-sm whitespace-nowrap">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-4 font-medium">Invoice No.</th>
+                      <th className="px-6 py-4 font-medium">Client</th>
+                      <th className="px-6 py-4 font-medium">Amount</th>
+                      <th className="px-6 py-4 font-medium text-right">Action</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {mockInvoices.map((inv) => {
+                      const status = syncStatus[inv.id] || 'idle';
+                      return (
+                        <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4 font-medium text-slate-900">{inv.number}</td>
+                          <td className="px-6 py-4 text-slate-600">{inv.client}</td>
+                          <td className="px-6 py-4 font-medium text-slate-900">${inv.amount.toFixed(2)}</td>
+                          <td className="px-6 py-4 text-right">
+                            {status === 'idle' && (
+                              <button 
+                                onClick={() => handleSyncInvoice(inv.id, inv.number, inv.amount)}
+                                className="text-xs font-medium bg-white text-slate-700 hover:text-cyan-600 border border-slate-200 hover:border-cyan-300 px-3 py-1.5 rounded-lg transition-all shadow-sm"
+                              >
+                                Sync to QB
+                              </button>
+                            )}
+                            {status === 'loading' && (
+                              <span className="text-xs font-medium text-slate-400 flex items-center justify-end space-x-1 animate-pulse">
+                                <span>Syncing...</span>
+                              </span>
+                            )}
+                            {status === 'success' && (
+                              <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
+                                ✓ Synced
+                              </span>
+                            )}
+                            {status === 'error' && (
+                              <span className="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">
+                                ✕ Failed
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            /* Zaključan prikaz kada korisnik nije povezan */
+            <div className="bg-slate-50 border border-slate-200 border-dashed rounded-xl p-10 text-center flex flex-col items-center justify-center">
+              <span className="text-4xl mb-4 grayscale opacity-50">🔒</span>
+              <h3 className="text-sm font-bold text-slate-700 mb-2">Invoices Locked</h3>
+              <p className="text-xs text-slate-500 max-w-sm">
+                Please connect your QuickBooks account using the button above to unlock invoice synchronization.
+              </p>
+            </div>
+          )}
         </div>
 
       </div>
