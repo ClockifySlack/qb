@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.3",
+  "schemaVersion": "1.0",
   "key": "clockify-quickbooks-bridge",
   "name": "QuickBooks Payroll Bridge",
   "description": "Automatically sync and push Clockify invoices directly into your QuickBooks Payroll account.",
