@@ -12,7 +12,12 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
-    const { workspaceId, addonToken } = body;
+    // DEBUGGING: Logujemo šta nam Clockify šalje u terminal/Vercel Logs
+    console.log("=== CLOCKIFY INSTALL PAYLOAD ===", JSON.stringify(body, null, 2));
+
+    // Prilagodićemo čitanje jer neki webhookovi šalju payload drugačije formatiran
+    const workspaceId = body.workspaceId || (body.context && body.context.workspaceId);
+    const addonToken = body.addonToken || body.token; 
 
     if (workspaceId && addonToken) {
       const { error } = await supabase
@@ -26,6 +31,10 @@ export async function POST(request: NextRequest) {
         console.error('Greška pri upisu tokena u bazu:', error);
         return new NextResponse('Database Error', { status: 500 });
       }
+      
+      console.log(`Uspešno upisan token za workspace: ${workspaceId}`);
+    } else {
+      console.warn("Nisu pronađeni workspaceId ili addonToken u payloadu!");
     }
 
     return new NextResponse('OK', { status: 200 });
