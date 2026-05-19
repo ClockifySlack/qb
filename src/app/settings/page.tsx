@@ -33,32 +33,23 @@ export default function Settings() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
+  // Povlačenje faktura pomoću auth_token-a
   useEffect(() => {
     if (isConnected) {
       setIsLoadingInvoices(true);
       setInvoiceError(null);
       
-      // Pokušavamo standardno čitanje URL parametara
       const urlParams = new URLSearchParams(window.location.search);
-      let currentWorkspaceId = urlParams.get('workspaceId');
-      
-      // Fallback ako su ga ubacili u putanju umesto u query
-      if (!currentWorkspaceId) {
-        const pathSegments = window.location.pathname.split('/');
-        const workspaceIndex = pathSegments.indexOf('workspaces');
-        if (workspaceIndex !== -1 && pathSegments.length > workspaceIndex + 1) {
-            currentWorkspaceId = pathSegments[workspaceIndex + 1];
-        }
-      }
+      const authToken = urlParams.get('auth_token');
 
-      // Ako i dalje nemamo ID, stopiramo sve i ispisujemo URL za debagovanje
-      if (!currentWorkspaceId) {
-          setInvoiceError(`Nedostaje workspaceId. Iframe URL: ${window.location.href}`);
+      if (!authToken) {
+          setInvoiceError(`Nedostaje auth_token u URL-u. Ne možemo učitati fakture.`);
           setIsLoadingInvoices(false);
           return;
       }
       
-      fetch(`/api/clockify/invoices?workspaceId=${currentWorkspaceId}`)
+      // Šaljemo auth_token na naš backend
+      fetch(`/api/clockify/invoices?auth_token=${authToken}`)
         .then(async (res) => {
           const data = await res.json();
           if (!res.ok) {
@@ -67,7 +58,7 @@ export default function Settings() {
           if (Array.isArray(data)) {
             setInvoices(data);
           } else {
-            throw new Error('API nije vratio niz, proveri konzolu.');
+            throw new Error('API nije vratio niz.');
           }
         })
         .catch(err => {
