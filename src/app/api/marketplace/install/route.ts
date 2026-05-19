@@ -1,12 +1,36 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
 
-export async function POST(request: Request) {
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+export async function POST(request: NextRequest) {
   try {
-    const data = await request.json();
-    console.log('Add-on uspesno instaliran na workspace:', data);
+    const body = await request.json();
     
-    return NextResponse.json({ success: true });
+    const { workspaceId, addonToken } = body;
+
+    if (workspaceId && addonToken) {
+      const { error } = await supabase
+        .from('clockify_tokens')
+        .upsert({
+          workspace_id: workspaceId,
+          addon_token: addonToken
+        }, { onConflict: 'workspace_id' });
+
+      if (error) {
+        console.error('Greška pri upisu tokena u bazu:', error);
+        return new NextResponse('Database Error', { status: 500 });
+      }
+    }
+
+    return new NextResponse('OK', { status: 200 });
   } catch (error) {
-    return NextResponse.json({ error: 'Neispravan zahtev' }, { status: 400 });
+    console.error('Install webhook error:', error);
+    return new NextResponse('Internal Error', { status: 500 });
   }
 }
