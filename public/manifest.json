@@ -30,7 +30,7 @@
       "iconPath": "/app-logo.png" 
     },
     {
-      "type": "invoices.tab",
+      "type": "invoices.action",
       "label": "Send Invoice to QB",
       "path": "/api/sync/invoice",
       "accessLevel": "ADMINS"
