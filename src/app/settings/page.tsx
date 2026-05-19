@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 
 export default function Settings() {
   const [isConnected, setIsConnected] = useState(false);
-  const [isCheckingStatus, setIsCheckingStatus] = useState(true); // NOVO: Dok proveravamo bazu
+  const [isCheckingStatus, setIsCheckingStatus] = useState(true);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
-  const [invoiceError, setInvoiceError] = useState<string | null>(null); // NOVO: Za hvatanje grešaka
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error'>>({});
 
   // 1. Provera da li je korisnik već povezan čim se otvori tab
@@ -41,8 +41,20 @@ export default function Settings() {
       setIsLoadingInvoices(true);
       setInvoiceError(null);
       
-      const params = new URLSearchParams(window.location.search);
-      const currentWorkspaceId = params.get('workspaceId');
+      // POUZDANIJI NAČIN ZA DOHVATANJE WORKSPACE ID-JA IZ IFRAME-A
+      let currentWorkspaceId = null;
+      try {
+        const pathSegments = window.location.pathname.split('/');
+        const workspaceIndex = pathSegments.indexOf('workspaces');
+        if (workspaceIndex !== -1 && pathSegments.length > workspaceIndex + 1) {
+            currentWorkspaceId = pathSegments[workspaceIndex + 1];
+        } else {
+             const params = new URLSearchParams(window.location.search);
+             currentWorkspaceId = params.get('workspaceId');
+        }
+      } catch (e) {
+          console.error("Greška pri čitanju URL-a:", e);
+      }
       
       const fetchUrl = currentWorkspaceId 
         ? `/api/clockify/invoices?workspaceId=${currentWorkspaceId}`
@@ -62,7 +74,7 @@ export default function Settings() {
         })
         .catch(err => {
           console.error('Error fetching invoices:', err);
-          setInvoiceError(err.message); // Ispisujemo grešku u UI!
+          setInvoiceError(err.message);
         })
         .finally(() => {
           setIsLoadingInvoices(false);
@@ -187,7 +199,6 @@ export default function Settings() {
                         </td>
                       </tr>
                     ) : invoiceError ? (
-                      // OVO NAM JE NAJVAŽNIJI DEO ZA DEBUG!
                       <tr>
                         <td colSpan={4} className="px-6 py-8 text-center bg-rose-50 border-t border-rose-100">
                           <span className="text-rose-600 font-semibold text-sm block mb-1">Došlo je do greške:</span>
