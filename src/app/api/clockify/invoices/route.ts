@@ -13,26 +13,15 @@ export async function GET(request: NextRequest) {
 
     const payloadBase64 = authToken.split('.')[1];
     const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-    
-    console.log("=== CLOCKIFY TOKEN PAYLOAD ===", JSON.stringify(payload, null, 2));
-
     const workspaceId = payload.workspaceId || payload.workspace_id;
     
     if (!workspaceId) {
-      return NextResponse.json({ error: 'Nije moguće pročitati workspaceId iz auth_token-a' }, { status: 400 });
+      return NextResponse.json({ error: 'Nije moguće pročitati workspaceId' }, { status: 400 });
     }
 
     const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
     const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-    
-    let fetchUrl = '';
-    if (cleanBaseUrl.endsWith('/api')) {
-       fetchUrl = `${cleanBaseUrl}/v1/workspaces/${workspaceId}/invoices`;
-    } else {
-       fetchUrl = `${cleanBaseUrl}/api/v1/workspaces/${workspaceId}/invoices`;
-    }
-
-    console.log("Gađamo Clockify API:", fetchUrl);
+    const fetchUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices`;
 
     const response = await fetch(fetchUrl, {
       headers: {
@@ -41,15 +30,18 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Clockify API greška detaljno:", errorText);
-      throw new Error(`Unauthorized (401): Token odbijen za ${fetchUrl}`);
+      throw new Error(data.message || data.error || `Clockify API error: ${response.status}`);
     }
 
-    const invoices = await response.json();
+    if (!Array.isArray(data)) {
+        console.error("API odgovor nije niz:", data);
+        throw new Error("API nije vratio listu faktura (format nije niz)");
+    }
 
-    const formattedInvoices = invoices.map((inv: any) => ({
+    const formattedInvoices = data.map((inv: any) => ({
       id: inv.id,
       number: inv.number,
       client: inv.clientName || 'Nepoznat klijent',
