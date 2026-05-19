@@ -10,14 +10,12 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({})); // Hvatamo ako je body prazan
     
-    // DEBUGGING: Logujemo šta nam Clockify šalje u terminal/Vercel Logs
-    console.log("=== CLOCKIFY INSTALL PAYLOAD ===", JSON.stringify(body, null, 2));
-
-    // Prilagodićemo čitanje jer neki webhookovi šalju payload drugačije formatiran
-    const workspaceId = body.workspaceId || (body.context && body.context.workspaceId);
-    const addonToken = body.addonToken || body.token; 
+    // Clockify šalje podatke u headerima (x-addon-token i x-workspace-id), 
+    // ali za svaki slučaj proveravamo i body strukturu
+    const workspaceId = request.headers.get('x-workspace-id') || body?.workspaceId || body?.context?.workspaceId;
+    const addonToken = request.headers.get('x-addon-token') || body?.token || body?.addonToken;
 
     if (workspaceId && addonToken) {
       const { error } = await supabase
@@ -34,7 +32,7 @@ export async function POST(request: NextRequest) {
       
       console.log(`Uspešno upisan token za workspace: ${workspaceId}`);
     } else {
-      console.warn("Nisu pronađeni workspaceId ili addonToken u payloadu!");
+      console.warn(`Instalacija pukla! WorkspaceID: ${workspaceId}, Token: ${addonToken ? 'Pronađen' : 'Nedostaje'}`);
     }
 
     return new NextResponse('OK', { status: 200 });
