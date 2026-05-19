@@ -23,9 +23,17 @@
   "settings": "/settings",
   "components": [
     {
-      "type": "invoices.action",
-      "label": "QuickBooks",
-      "path": "/sync-invoice-modal",
+      "type": "sidebar",
+      "label": "QuickBooks Bridge",
+      "path": "/settings",
+      "accessLevel": "ADMINS",
+      "iconPath": "/app-logo.png" 
+    },
+    {
+      "type": "entity-action",
+      "entityType": "INVOICE",
+      "label": "Send Invoice to QB",
+      "path": "/api/sync/invoice",
       "accessLevel": "ADMINS"
     }
   ]
