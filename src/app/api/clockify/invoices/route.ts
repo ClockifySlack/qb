@@ -1,44 +1,36 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function GET(request: NextRequest) {
   try {
-    // Čitamo workspaceId iz query parametra koji nam šalje frontend
     const { searchParams } = new URL(request.url);
-    const workspaceId = searchParams.get('workspaceId');
+    const authToken = searchParams.get('auth_token');
+
+    if (!authToken) {
+      return NextResponse.json({ error: 'Nedostaje auth_token iz URL-a' }, { status: 400 });
+    }
+
+    // Dekodiranje JWT tokena da izvučemo workspaceId
+    // JWT format je: header.payload.signature
+    const payloadBase64 = authToken.split('.')[1];
+    const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+    const workspaceId = payload.workspaceId || payload.workspace_id;
 
     if (!workspaceId) {
-      return NextResponse.json({ error: 'Nedostaje workspaceId' }, { status: 400 });
+      return NextResponse.json({ error: 'Nije moguće pročitati workspaceId iz auth_token-a' }, { status: 400 });
     }
 
-    // 1. Povlačimo oficijelni add-on token iz naše baze
-    const { data: tokenData, error: dbError } = await supabase
-      .from('clockify_tokens')
-      .select('addon_token')
-      .eq('workspace_id', workspaceId)
-      .single();
-
-    if (dbError || !tokenData) {
-      return NextResponse.json({ error: 'Nije pronađen token za ovaj workspace' }, { status: 401 });
-    }
-
-    // 2. Šaljemo zahtev ka Clockify API-ju koristeći X-Addon-Token!
+    // Šaljemo zahtev ka Clockify API-ju koristeći pravi X-Addon-Token
     const response = await fetch(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/invoices`, {
       headers: {
-        'X-Addon-Token': tokenData.addon_token,
+        'X-Addon-Token': authToken,
         'Accept': 'application/json'
       }
     });
 
     if (!response.ok) {
-      throw new Error('Neuspešno povlačenje faktura sa Clockify-ja');
+      throw new Error(`Clockify API greška: ${response.statusText}`);
     }
 
     const invoices = await response.json();
@@ -53,6 +45,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(formattedInvoices);
   } catch (error: any) {
+    console.error('Invoice fetch error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
