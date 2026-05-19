@@ -26,13 +26,6 @@
       "type": "sidebar",
       "label": "QuickBooks Bridge",
       "path": "/settings",
-      "accessLevel": "ADMINS",
-      "iconPath": "/app-logo.png" 
-    },
-    {
-      "type": "invoices.action",
-      "label": "Send Invoice to QB",
-      "path": "/api/sync/invoice",
       "accessLevel": "ADMINS"
     }
   ]
