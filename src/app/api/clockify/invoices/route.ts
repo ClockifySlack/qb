@@ -1,6 +1,12 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function GET(request: NextRequest) {
   try {
@@ -38,6 +44,13 @@ export async function GET(request: NextRequest) {
         throw new Error("API nije vratio listu faktura u prepoznatljivom formatu");
     }
 
+    // Povlačimo sve sinhronizovane ID-jeve iz Supabase baze
+    const { data: syncedData } = await supabase
+      .from('synced_invoices')
+      .select('clockify_invoice_id');
+      
+    const syncedIds = new Set(syncedData?.map(row => row.clockify_invoice_id) || []);
+
     const formattedInvoices = invoiceList.map((inv: any) => {
       const amountInCents = inv.amount || 0;
       const amountInDollars = amountInCents / 100;
@@ -47,7 +60,8 @@ export async function GET(request: NextRequest) {
         number: inv.number || 'N/A',
         client: inv.clientName || 'Nepoznat klijent',
         amount: amountInDollars.toFixed(2),
-        date: inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : '-'
+        date: inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : '-',
+        isSynced: syncedIds.has(inv.id) 
       };
     });
 
