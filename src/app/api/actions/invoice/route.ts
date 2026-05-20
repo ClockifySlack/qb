@@ -24,15 +24,28 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log("=== CLOCKIFY INVOICE ACTION PAYLOAD ===", JSON.stringify(body, null, 2));
 
-    const invoiceId = body.id;
-    const invoiceNumber = body.number || "INV-ACTION";
-    const amountInCents = body.total || body.amount || 0;
+    let dataObj = body;
+    
+    if (!dataObj.id) {
+       const nestedObject: any = Object.values(body).find(
+         (val: any) => val && typeof val === 'object' && val.id
+       );
+       if (nestedObject) {
+          dataObj = nestedObject;
+       }
+    }
+
+    const invoiceId = dataObj.id;
+    const invoiceNumber = dataObj.number || "INV-ACTION";
+    
+    const amountInCents = dataObj.total || dataObj.amount || dataObj.balance || 0;
     const amountInDollars = amountInCents / 100;
     
     const realmId = "9341457104211536";
 
     if (!invoiceId) {
-      throw new Error("Nije prepoznat ID fakture");
+      console.error("Payload iz kog nije izvučen ID:", body);
+      throw new Error("Nije prepoznat ID fakture u payload-u");
     }
 
     const { data: existingSync } = await supabase
@@ -64,7 +77,7 @@ export async function POST(request: NextRequest) {
         }
       ],
       "CustomerRef": {
-        "value": "1" 
+        "value": "1"
       },
       "DocNumber": invoiceNumber
     };
@@ -95,17 +108,17 @@ export async function POST(request: NextRequest) {
       });
 
     return NextResponse.json({
-      message: `Faktura ${invoiceNumber} uspešno sinhronizovana!`,
+      message: `Faktura uspešno sinhronizovana u QB!`,
       type: "SUCCESS"
     }, { status: 200, headers: corsHeaders });
 
   } catch (error: any) {
     console.error('Action error:', error);
     return NextResponse.json({ 
-      message: error.message || "Došlo je do greške prilikom sinhronizacije",
+      message: error.message || "Došlo je do greške",
       type: "ERROR" 
     }, { 
-      status: 200,
+      status: 200, 
       headers: corsHeaders 
     });
   }
