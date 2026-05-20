@@ -8,17 +8,13 @@ export async function GET(request: NextRequest) {
     const authToken = searchParams.get('auth_token');
 
     if (!authToken) {
-      return NextResponse.json({ error: 'Nedostaje auth_token iz URL-a' }, { status: 400 });
+      return NextResponse.json({ error: 'Nedostaje auth_token' }, { status: 400 });
     }
 
     const payloadBase64 = authToken.split('.')[1];
     const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
     const workspaceId = payload.workspaceId || payload.workspace_id;
     
-    if (!workspaceId) {
-      return NextResponse.json({ error: 'Nije moguće pročitati workspaceId' }, { status: 400 });
-    }
-
     const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
     const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
     const fetchUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices`;
@@ -33,17 +29,18 @@ export async function GET(request: NextRequest) {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.message || data.error || `Clockify API error: ${response.status}`);
+      throw new Error(data.message || `Greška: ${response.status}`);
     }
 
-    if (!Array.isArray(data)) {
-        console.error("API odgovor nije niz:", data);
-        throw new Error("API nije vratio listu faktura (format nije niz)");
+    const invoiceList = Array.isArray(data) ? data : (data.invoices || []);
+
+    if (!Array.isArray(invoiceList)) {
+        throw new Error("API nije vratio listu faktura u prepoznatljivom formatu");
     }
 
-    const formattedInvoices = data.map((inv: any) => ({
-      id: inv.id,
-      number: inv.number,
+    const formattedInvoices = invoiceList.map((inv: any) => ({
+      id: inv.id || 'N/A',
+      number: inv.number || 'N/A',
       client: inv.clientName || 'Nepoznat klijent',
       amount: inv.total || 0,
       date: inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : '-'
