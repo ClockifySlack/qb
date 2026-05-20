@@ -38,13 +38,18 @@ export async function GET(request: NextRequest) {
         throw new Error("API nije vratio listu faktura u prepoznatljivom formatu");
     }
 
-    const formattedInvoices = invoiceList.map((inv: any) => ({
-      id: inv.id || 'N/A',
-      number: inv.number || 'N/A',
-      client: inv.clientName || 'Nepoznat klijent',
-      amount: inv.total || 0,
-      date: inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : '-'
-    }));
+    const formattedInvoices = invoiceList.map((inv: any) => {
+      const amountInCents = inv.amount || 0;
+      const amountInDollars = amountInCents / 100;
+
+      return {
+        id: inv.id || 'N/A',
+        number: inv.number || 'N/A',
+        client: inv.clientName || 'Nepoznat klijent',
+        amount: amountInDollars.toFixed(2),
+        date: inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : '-'
+      };
+    });
 
     return NextResponse.json(formattedInvoices);
   } catch (error: any) {
