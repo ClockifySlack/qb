@@ -31,7 +31,7 @@
     {
       "type": "invoices.action",
       "label": "Send to QuickBooks",
-      "path": "/settings",
+      "path": "/api/actions/invoice",
       "accessLevel": "ADMINS"
     }
   ]
