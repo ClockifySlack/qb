@@ -1,19 +1,35 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getValidQBTokens } from '../../../../lib/qbAuth';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { invoiceId, invoiceNumber, amount, realmId } = body;
 
-    if (!realmId) {
-      return NextResponse.json({ error: 'Missing realmId parameter' }, { status: 400 });
+    if (!realmId || !invoiceId) {
+      return NextResponse.json({ error: 'Nedostaju parametri' }, { status: 400 });
     }
 
-    // 1. Dobijanje važećeg tokena (automatski osvežava ako je prošlo sat vremena)
+    const { data: existingSync } = await supabase
+      .from('synced_invoices')
+      .select('*')
+      .eq('clockify_invoice_id', invoiceId)
+      .single();
+
+    if (existingSync) {
+      return NextResponse.json({ error: 'Faktura je već sinhronizovana' }, { status: 400 });
+    }
+
     const qbAccessToken = await getValidQBTokens(realmId);
 
-    // 2. Priprema QuickBooks Invoice strukture (Zahteva bar 1 Line Item i CustomerRef)
     const qbInvoiceBody = {
       "Line": [
         {
@@ -21,19 +37,18 @@ export async function POST(request: NextRequest) {
           "DetailType": "SalesItemLineDetail",
           "SalesItemLineDetail": {
             "ItemRef": {
-              "value": "1", // Podrazumevana usluga u QB Sandbox-u
+              "value": "1", 
               "name": "Services"
             }
           }
         }
       ],
       "CustomerRef": {
-        "value": "1" // Podrazumevani kupac u QB Sandbox-u (Amy's Bird Sanctuary)
+        "value": "1" // Ovde je tvoja Amy!
       },
       "DocNumber": invoiceNumber || "INV-001"
     };
 
-    // 3. Slanje na QuickBooks produkcijski/sandbox API
     const qbResponse = await fetch(`https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/invoice?minorversion=65`, {
       method: 'POST',
       headers: {
@@ -51,6 +66,13 @@ export async function POST(request: NextRequest) {
     }
 
     const qbResult = await qbResponse.json();
+
+    await supabase
+      .from('synced_invoices')
+      .insert({
+        clockify_invoice_id: invoiceId,
+        qb_invoice_id: qbResult.Invoice.Id
+      });
 
     return NextResponse.json({ 
       success: true, 
