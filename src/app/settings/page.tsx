@@ -57,6 +57,16 @@ export default function Settings() {
           }
           if (Array.isArray(data)) {
             setInvoices(data);
+            
+            // NOVO: Postavljamo početno "success" stanje za već sinhronizovane fakture
+            const initialSyncStatus: Record<string, 'idle' | 'loading' | 'success' | 'error'> = {};
+            data.forEach((inv) => {
+              if (inv.isSynced) {
+                initialSyncStatus[inv.id] = 'success';
+              }
+            });
+            setSyncStatus(initialSyncStatus);
+
           } else {
             throw new Error('API nije vratio niz.');
           }
