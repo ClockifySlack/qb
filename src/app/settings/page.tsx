@@ -9,6 +9,10 @@ export default function Settings() {
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error'>>({});
+  
+  // NOVO: State za porez
+  const [applyTax, setApplyTax] = useState(true);
+  const [isUpdatingTax, setIsUpdatingTax] = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/status')
@@ -28,12 +32,21 @@ export default function Settings() {
         setIsConnected(true);
       }
     };
-
     window.addEventListener('message', handleOAuthMessage);
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
-  // Povlačenje faktura pomoću auth_token-a
+  // NOVO: Povlačenje postavki poreza kada se korisnik poveže
+  useEffect(() => {
+    if (isConnected) {
+      fetch('/api/settings/tax')
+        .then(res => res.json())
+        .then(data => setApplyTax(data.applyTax))
+        .catch(console.error);
+    }
+  }, [isConnected]);
+
+  // Povlačenje faktura
   useEffect(() => {
     if (isConnected) {
       setIsLoadingInvoices(true);
@@ -48,31 +61,22 @@ export default function Settings() {
           return;
       }
       
-      // Šaljemo auth_token na naš backend
       fetch(`/api/clockify/invoices?auth_token=${authToken}`)
         .then(async (res) => {
           const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.error || 'Nepoznata greška sa servera');
-          }
+          if (!res.ok) throw new Error(data.error || 'Nepoznata greška sa servera');
           if (Array.isArray(data)) {
             setInvoices(data);
-            
-            // NOVO: Postavljamo početno "success" stanje za već sinhronizovane fakture
             const initialSyncStatus: Record<string, 'idle' | 'loading' | 'success' | 'error'> = {};
             data.forEach((inv) => {
-              if (inv.isSynced) {
-                initialSyncStatus[inv.id] = 'success';
-              }
+              if (inv.isSynced) initialSyncStatus[inv.id] = 'success';
             });
             setSyncStatus(initialSyncStatus);
-
           } else {
             throw new Error('API nije vratio niz.');
           }
         })
         .catch(err => {
-          console.error('Error fetching invoices:', err);
           setInvoiceError(err.message);
         })
         .finally(() => {
@@ -86,38 +90,41 @@ export default function Settings() {
     const height = 700;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
+    window.open('/api/auth/qb', 'QuickBooksAuthorization', `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`);
+  };
 
-    window.open(
-      '/api/auth/qb',
-      'QuickBooksAuthorization',
-      `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`
-    );
+  // NOVO: Funkcija za promenu postavke poreza
+  const handleTaxToggle = async () => {
+    const newValue = !applyTax;
+    setApplyTax(newValue);
+    setIsUpdatingTax(true);
+    
+    try {
+      await fetch('/api/settings/tax', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applyTax: newValue })
+      });
+    } catch (err) {
+      console.error(err);
+      setApplyTax(!newValue); // Vraćamo nazad ako API pukne
+    } finally {
+      setIsUpdatingTax(false);
+    }
   };
 
   const handleSyncInvoice = async (invoiceId: string, invoiceNumber: string, amount: number) => {
     setSyncStatus(prev => ({ ...prev, [invoiceId]: 'loading' }));
-
     try {
       const response = await fetch('/api/sync/invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-          invoiceNumber,
-          amount,
-          realmId: "9341457104211536" 
-        })
+        body: JSON.stringify({ invoiceId, invoiceNumber, amount, realmId: "9341457104211536" })
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to sync');
-      }
-
+      if (!response.ok) throw new Error(data.error || 'Failed to sync');
       setSyncStatus(prev => ({ ...prev, [invoiceId]: 'success' }));
     } catch (error) {
-      console.error(error);
       setSyncStatus(prev => ({ ...prev, [invoiceId]: 'error' }));
     }
   };
@@ -133,7 +140,7 @@ export default function Settings() {
         </div>
         <h1 className="text-2xl font-bold text-slate-900 mb-6">Integration Settings</h1>
 
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-start space-x-4">
             <div className={`p-2.5 rounded-lg font-bold text-lg hidden sm:block ${isConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
               QB
@@ -152,9 +159,7 @@ export default function Settings() {
           
           <div className="flex-shrink-0">
             {isCheckingStatus ? (
-              <span className="inline-flex items-center text-sm text-slate-400 animate-pulse">
-                Checking...
-              </span>
+              <span className="inline-flex items-center text-sm text-slate-400 animate-pulse">Checking...</span>
             ) : isConnected ? (
               <span className="inline-flex items-center bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 rounded-lg">
                 ✓ Connected
@@ -162,7 +167,7 @@ export default function Settings() {
             ) : (
               <button
                 onClick={openAuthPopup}
-                className="inline-flex items-center justify-center bg-[#2ca01c] hover:bg-[#1e6b13] text-white font-medium text-sm py-2.5 px-5 rounded-lg transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 font-sans"
+                className="inline-flex items-center justify-center bg-[#2ca01c] hover:bg-[#1e6b13] text-white font-medium text-sm py-2.5 px-5 rounded-lg transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500"
               >
                 Connect QuickBooks
               </button>
@@ -173,6 +178,23 @@ export default function Settings() {
         <div className="border-t border-slate-100 pt-8">
           {isConnected ? (
             <>
+              {/* NOVO: Kartica za Tax podešavanja */}
+              <div className="bg-white border border-slate-200 rounded-xl p-5 mb-8 shadow-sm flex items-center justify-between hover:border-slate-300 transition-colors">
+                <div className="pr-4">
+                  <h3 className="font-semibold text-slate-900">Automatski porez u QuickBooks-u</h3>
+                  <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                    Kada pošaljete fakturu, dozvolite QuickBooks-u da automatski obračuna i primeni odgovarajuću poresku stopu za tog klijenta.
+                  </p>
+                </div>
+                <button
+                  onClick={handleTaxToggle}
+                  disabled={isUpdatingTax}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${applyTax ? 'bg-emerald-500' : 'bg-slate-300'} ${isUpdatingTax ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${applyTax ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
+
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-slate-900">Recent Invoices</h2>
                 <span className="text-xs font-medium bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full border border-emerald-100">
