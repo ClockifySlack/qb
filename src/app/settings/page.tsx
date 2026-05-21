@@ -10,7 +10,6 @@ export default function Settings() {
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error'>>({});
   
-  // NOVO: State za porez
   const [applyTax, setApplyTax] = useState(true);
   const [isUpdatingTax, setIsUpdatingTax] = useState(false);
 
@@ -36,7 +35,6 @@ export default function Settings() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
-  // NOVO: Povlačenje postavki poreza kada se korisnik poveže
   useEffect(() => {
     if (isConnected) {
       fetch('/api/settings/tax')
@@ -46,7 +44,6 @@ export default function Settings() {
     }
   }, [isConnected]);
 
-  // Povlačenje faktura
   useEffect(() => {
     if (isConnected) {
       setIsLoadingInvoices(true);
@@ -56,7 +53,7 @@ export default function Settings() {
       const authToken = urlParams.get('auth_token');
 
       if (!authToken) {
-          setInvoiceError(`Nedostaje auth_token u URL-u. Ne možemo učitati fakture.`);
+          setInvoiceError(`Missing auth_token in URL. Cannot load invoices.`);
           setIsLoadingInvoices(false);
           return;
       }
@@ -64,7 +61,7 @@ export default function Settings() {
       fetch(`/api/clockify/invoices?auth_token=${authToken}`)
         .then(async (res) => {
           const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Nepoznata greška sa servera');
+          if (!res.ok) throw new Error(data.error || 'Unknown server error');
           if (Array.isArray(data)) {
             setInvoices(data);
             const initialSyncStatus: Record<string, 'idle' | 'loading' | 'success' | 'error'> = {};
@@ -73,7 +70,7 @@ export default function Settings() {
             });
             setSyncStatus(initialSyncStatus);
           } else {
-            throw new Error('API nije vratio niz.');
+            throw new Error('API did not return an array.');
           }
         })
         .catch(err => {
@@ -93,7 +90,6 @@ export default function Settings() {
     window.open('/api/auth/qb', 'QuickBooksAuthorization', `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`);
   };
 
-  // NOVO: Funkcija za promenu postavke poreza
   const handleTaxToggle = async () => {
     const newValue = !applyTax;
     setApplyTax(newValue);
@@ -107,7 +103,7 @@ export default function Settings() {
       });
     } catch (err) {
       console.error(err);
-      setApplyTax(!newValue); // Vraćamo nazad ako API pukne
+      setApplyTax(!newValue);
     } finally {
       setIsUpdatingTax(false);
     }
@@ -178,12 +174,11 @@ export default function Settings() {
         <div className="border-t border-slate-100 pt-8">
           {isConnected ? (
             <>
-              {/* NOVO: Kartica za Tax podešavanja */}
               <div className="bg-white border border-slate-200 rounded-xl p-5 mb-8 shadow-sm flex items-center justify-between hover:border-slate-300 transition-colors">
                 <div className="pr-4">
-                  <h3 className="font-semibold text-slate-900">Automatski porez u QuickBooks-u</h3>
+                  <h3 className="font-semibold text-slate-900">QuickBooks Automatic Tax</h3>
                   <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-                    Kada pošaljete fakturu, dozvolite QuickBooks-u da automatski obračuna i primeni odgovarajuću poresku stopu za tog klijenta.
+                    When sending an invoice, allow QuickBooks to automatically calculate and apply the appropriate tax rate for the client.
                   </p>
                 </div>
                 <button
@@ -222,7 +217,7 @@ export default function Settings() {
                     ) : invoiceError ? (
                       <tr>
                         <td colSpan={4} className="px-6 py-8 text-center bg-rose-50 border-t border-rose-100 whitespace-normal">
-                          <span className="text-rose-600 font-semibold text-sm block mb-1">Došlo je do greške:</span>
+                          <span className="text-rose-600 font-semibold text-sm block mb-1">An error occurred:</span>
                           <span className="text-rose-500 text-xs break-words">{invoiceError}</span>
                         </td>
                       </tr>
