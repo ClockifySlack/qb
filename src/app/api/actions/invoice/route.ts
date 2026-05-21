@@ -108,21 +108,37 @@ export async function POST(request: NextRequest) {
     const txnDate = formatDate(dataObj.issuedDate || dataObj.issueDate);
     const dueDate = formatDate(dataObj.dueDate);
 
+    // Pitamo bazu da li je korisnik uključio porez
+    const { data: connectionData } = await supabase
+      .from('qb_connections')
+      .select('apply_tax')
+      .eq('realm_id', realmId)
+      .single();
 
- const qbInvoiceBody: any = {
+    // Podrazumevamo true osim ako korisnik nije eksplicitno ugasio
+    const shouldApplyTax = connectionData?.apply_tax !== false;
+
+    // Pravimo strukturu za stavku
+    const salesItemLineDetail: any = {
+      "ItemRef": {
+        "value": "1", 
+        "name": "Services"
+      }
+    };
+
+    // Ako je porez uključen šaljemo TAX, ako je isključen šaljemo NON
+    if (shouldApplyTax) {
+      salesItemLineDetail["TaxCodeRef"] = { "value": "TAX" };
+    } else {
+      salesItemLineDetail["TaxCodeRef"] = { "value": "NON" };
+    }
+
+    const qbInvoiceBody: any = {
       "Line": [
         {
           "Amount": amountInDollars >= 0 ? amountInDollars : 0,
           "DetailType": "SalesItemLineDetail",
-          "SalesItemLineDetail": {
-            "ItemRef": {
-              "value": "1", 
-              "name": "Services"
-            },
-            "TaxCodeRef": {
-              "value": "TAX"
-            }
-          }
+          "SalesItemLineDetail": salesItemLineDetail
         }
       ],
       "CustomerRef": {
