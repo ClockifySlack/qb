@@ -13,6 +13,10 @@ export default function Settings() {
   const [applyTax, setApplyTax] = useState(true);
   const [isUpdatingTax, setIsUpdatingTax] = useState(false);
 
+  // NOVO: State za status fakture
+  const [markAsSent, setMarkAsSent] = useState(true);
+  const [isUpdatingSent, setIsUpdatingSent] = useState(false);
+
   useEffect(() => {
     fetch('/api/auth/status')
       .then(res => res.json())
@@ -35,11 +39,15 @@ export default function Settings() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
+  // API putanja promenjena na /preferences
   useEffect(() => {
     if (isConnected) {
-      fetch('/api/settings/tax')
+      fetch('/api/settings/preferences')
         .then(res => res.json())
-        .then(data => setApplyTax(data.applyTax))
+        .then(data => {
+          setApplyTax(data.applyTax);
+          setMarkAsSent(data.markAsSent);
+        })
         .catch(console.error);
     }
   }, [isConnected]);
@@ -96,7 +104,7 @@ export default function Settings() {
     setIsUpdatingTax(true);
     
     try {
-      await fetch('/api/settings/tax', {
+      await fetch('/api/settings/preferences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ applyTax: newValue })
@@ -106,6 +114,26 @@ export default function Settings() {
       setApplyTax(!newValue);
     } finally {
       setIsUpdatingTax(false);
+    }
+  };
+
+  // NOVO: Funkcija za menjanje status postavke
+  const handleSentToggle = async () => {
+    const newValue = !markAsSent;
+    setMarkAsSent(newValue);
+    setIsUpdatingSent(true);
+    
+    try {
+      await fetch('/api/settings/preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAsSent: newValue })
+      });
+    } catch (err) {
+      console.error(err);
+      setMarkAsSent(!newValue);
+    } finally {
+      setIsUpdatingSent(false);
     }
   };
 
@@ -174,20 +202,38 @@ export default function Settings() {
         <div className="border-t border-slate-100 pt-8">
           {isConnected ? (
             <>
-              <div className="bg-white border border-slate-200 rounded-xl p-5 mb-8 shadow-sm flex items-center justify-between hover:border-slate-300 transition-colors">
-                <div className="pr-4">
-                  <h3 className="font-semibold text-slate-900">QuickBooks Automatic Tax</h3>
-                  <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-                    When sending an invoice, allow QuickBooks to automatically calculate and apply the appropriate tax rate for the client.
-                  </p>
+              <div className="grid grid-cols-1 gap-4 mb-8">
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex items-center justify-between hover:border-slate-300 transition-colors">
+                  <div className="pr-4">
+                    <h3 className="font-semibold text-slate-900">QuickBooks Automatic Tax</h3>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                      When sending an invoice, allow QuickBooks to automatically calculate and apply the appropriate tax rate for the client.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleTaxToggle}
+                    disabled={isUpdatingTax}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${applyTax ? 'bg-emerald-500' : 'bg-slate-300'} ${isUpdatingTax ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${applyTax ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
                 </div>
-                <button
-                  onClick={handleTaxToggle}
-                  disabled={isUpdatingTax}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${applyTax ? 'bg-emerald-500' : 'bg-slate-300'} ${isUpdatingTax ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${applyTax ? 'translate-x-5' : 'translate-x-0'}`} />
-                </button>
+
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex items-center justify-between hover:border-slate-300 transition-colors">
+                  <div className="pr-4">
+                    <h3 className="font-semibold text-slate-900">Mark as Sent in Clockify</h3>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                      Automatically change the invoice status to "SENT" in Clockify after successfully syncing it to QuickBooks.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleSentToggle}
+                    disabled={isUpdatingSent}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${markAsSent ? 'bg-emerald-500' : 'bg-slate-300'} ${isUpdatingSent ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${markAsSent ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-between mb-4">
