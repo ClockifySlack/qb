@@ -43,9 +43,10 @@ export async function POST(request: NextRequest) {
     const realmId = "9341457104211536";
 
     if (!invoiceId) {
-      throw new Error("Nije prepoznat ID fakture u payload-u");
+      throw new Error("Invoice ID not recognized in payload");
     }
 
+    // Step 1: Check for duplicates
     const { data: existingSync } = await supabase
       .from('synced_invoices')
       .select('*')
@@ -54,17 +55,18 @@ export async function POST(request: NextRequest) {
 
     if (existingSync) {
       return NextResponse.json({
-        message: "Ova faktura je već poslata u QuickBooks!",
+        message: "This invoice has already been sent to QuickBooks!",
         type: "ERROR" 
       }, { status: 200, headers: corsHeaders });
     }
 
     const qbAccessToken = await getValidQBTokens(realmId);
     
-    const clientName = dataObj.clientName || "Nepoznat Klijent";
+    // Step 2: Handle QuickBooks Customer mapping/creation
+    const clientName = dataObj.clientName || "Unknown Client";
     let qbCustomerId = "1";
 
-    if (clientName !== "Nepoznat Klijent") {
+    if (clientName !== "Unknown Client") {
       const safeClientName = clientName.replace(/'/g, "''");
       const query = `select * from Customer where DisplayName = '${safeClientName}'`;
       const queryUrl = `https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${encodeURIComponent(query)}&minorversion=65`;
@@ -100,6 +102,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Step 3: Formatting dates
     const formatDate = (dateStr?: string) => {
       if (!dateStr) return undefined;
       return dateStr.split('T')[0];
@@ -108,17 +111,15 @@ export async function POST(request: NextRequest) {
     const txnDate = formatDate(dataObj.issuedDate || dataObj.issueDate);
     const dueDate = formatDate(dataObj.dueDate);
 
-    // Pitamo bazu da li je korisnik uključio porez
+    // Step 4: Check if tax is enabled in DB
     const { data: connectionData } = await supabase
       .from('qb_connections')
       .select('apply_tax')
       .eq('realm_id', realmId)
       .single();
 
-    // Podrazumevamo true osim ako korisnik nije eksplicitno ugasio
     const shouldApplyTax = connectionData?.apply_tax !== false;
 
-    // Pravimo strukturu za stavku
     const salesItemLineDetail: any = {
       "ItemRef": {
         "value": "1", 
@@ -126,7 +127,6 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    // Ako je porez uključen šaljemo TAX, ako je isključen šaljemo NON
     if (shouldApplyTax) {
       salesItemLineDetail["TaxCodeRef"] = { "value": "TAX" };
     } else {
@@ -150,6 +150,7 @@ export async function POST(request: NextRequest) {
     if (txnDate) qbInvoiceBody.TxnDate = txnDate;
     if (dueDate) qbInvoiceBody.DueDate = dueDate;
 
+    // Send the invoice to QuickBooks
     const qbResponse = await fetch(`https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/invoice?minorversion=65`, {
       method: 'POST',
       headers: {
@@ -163,11 +164,12 @@ export async function POST(request: NextRequest) {
     if (!qbResponse.ok) {
       const errorData = await qbResponse.json();
       console.error('QuickBooks API Error:', errorData);
-      throw new Error("QuickBooks API je odbio zahtev za kreiranje fakture");
+      throw new Error("QuickBooks API rejected the request to create the invoice");
     }
 
     const qbResult = await qbResponse.json();
 
+    // Step 5: Log synchronization in Supabase
     await supabase
       .from('synced_invoices')
       .insert({
@@ -175,15 +177,53 @@ export async function POST(request: NextRequest) {
         qb_invoice_id: qbResult.Invoice.Id
       });
 
+    // Step 6: Update invoice status in Clockify to "SENT"
+    const addonToken = request.headers.get('x-addon-token') || request.headers.get('X-Addon-Token');
+    
+    if (addonToken) {
+      try {
+        const payloadBase64 = addonToken.split('.')[1];
+        const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+        const workspaceId = payload.workspaceId || payload.workspace_id;
+        const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
+        const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        
+        const getInvRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
+          headers: {
+            'X-Addon-Token': addonToken,
+            'Accept': 'application/json'
+          }
+        });
+
+        if (getInvRes.ok) {
+          const clockifyInvoiceData = await getInvRes.json();
+          
+          clockifyInvoiceData.status = "SENT";
+
+          await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
+            method: 'PUT',
+            headers: {
+              'X-Addon-Token': addonToken,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify(clockifyInvoiceData)
+          });
+        }
+      } catch (clockifyError) {
+        console.error("Failed to update status in Clockify, but invoice was sent to QB:", clockifyError);
+      }
+    }
+
     return NextResponse.json({
-      message: `Faktura za klijenta ${clientName} uspešno sinhronizovana!`,
+      message: `Invoice for client ${clientName} successfully synced!`,
       type: "SUCCESS"
     }, { status: 200, headers: corsHeaders });
 
   } catch (error: any) {
     console.error('Action error:', error);
     return NextResponse.json({ 
-      message: error.message || "Došlo je do greške",
+      message: error.message || "An error occurred",
       type: "ERROR" 
     }, { 
       status: 200, 
