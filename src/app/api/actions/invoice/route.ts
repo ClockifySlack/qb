@@ -22,7 +22,6 @@ export async function OPTIONS() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log("=== CLOCKIFY INVOICE ACTION PAYLOAD ===", JSON.stringify(body, null, 2));
 
     let dataObj = body;
     if (!dataObj.id) {
@@ -158,8 +157,6 @@ export async function POST(request: NextRequest) {
     });
 
     if (!qbResponse.ok) {
-      const errorData = await qbResponse.json();
-      console.error('QuickBooks API Error:', errorData);
       throw new Error("QuickBooks API rejected the request to create the invoice");
     }
 
@@ -172,10 +169,16 @@ export async function POST(request: NextRequest) {
         qb_invoice_id: qbResult.Invoice.Id
       });
 
-    // PROMENA STATUSA U CLOCKIFY-JU (Samo ako je korisnik dozvolio)
+    // PROMENA STATUSA U CLOCKIFY-JU (Pravilno hvatanje tokena iz padajućeg menija)
     if (shouldMarkAsSent) {
-      const addonToken = request.headers.get('x-addon-token') || request.headers.get('X-Addon-Token');
-      
+      const authHeader = request.headers.get('authorization');
+      let addonToken = request.headers.get('x-addon-token') || request.headers.get('X-Addon-Token');
+
+      // Ako je token stigao kroz Authorization header, sečemo "Bearer " prefiks
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        addonToken = authHeader.substring(7);
+      }
+
       if (addonToken) {
         try {
           const payloadBase64 = addonToken.split('.')[1];
@@ -194,7 +197,6 @@ export async function POST(request: NextRequest) {
           if (getInvRes.ok) {
             const clockifyInvoiceData = await getInvRes.json();
             
-            // PRAVIMO ČIST PAYLOAD DA GA CLOCKIFY NE BI ODBIO
             const updatePayload = {
               clientId: clockifyInvoiceData.clientId,
               currency: clockifyInvoiceData.currency,
@@ -207,7 +209,7 @@ export async function POST(request: NextRequest) {
               subject: clockifyInvoiceData.subject || ""
             };
 
-            const putRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
+            await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
               method: 'PUT',
               headers: {
                 'X-Addon-Token': addonToken,
@@ -216,21 +218,9 @@ export async function POST(request: NextRequest) {
               },
               body: JSON.stringify(updatePayload)
             });
-
-            if (!putRes.ok) {
-              const putErr = await putRes.text();
-              console.error("Greška pri ažuriranju statusa u Clockify:", putErr);
-            } else {
-              console.log("Status uspešno promenjen u SENT!");
-            }
-          } else {
-            console.error("Nije moguće dohvatiti fakturu, status:", getInvRes.status);
           }
-        } catch (clockifyError) {
-          console.error("Failed to update status in Clockify:", clockifyError);
+        } catch (error) {
         }
-      } else {
-        console.error("Addon token nije pronađen u zaglavlju.");
       }
     }
 
@@ -240,7 +230,6 @@ export async function POST(request: NextRequest) {
     }, { status: 200, headers: corsHeaders });
 
   } catch (error: any) {
-    console.error('Action error:', error);
     return NextResponse.json({ 
       message: error.message || "An error occurred",
       type: "ERROR" 
