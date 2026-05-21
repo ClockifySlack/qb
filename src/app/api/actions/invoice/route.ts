@@ -205,3 +205,56 @@ export async function POST(request: NextRequest) {
             const updatePayload = {
               clientId: clockifyInvoiceData.clientId,
               currency: clockifyInvoiceData.currency,
+              dueDate: clockifyInvoiceData.dueDate,
+              issueDate: clockifyInvoiceData.issueDate || clockifyInvoiceData.issuedDate,
+              notes: clockifyInvoiceData.notes || "",
+              number: clockifyInvoiceData.number,
+              paymentTerms: clockifyInvoiceData.paymentTerms || 0,
+              status: "SENT",
+              subject: clockifyInvoiceData.subject || "",
+              items: clockifyInvoiceData.items || [] // Ubačeno jer je možda obavezno
+            };
+
+            const putRes = await fetch(apiUrl, {
+              method: 'PUT',
+              headers: {
+                'X-Addon-Token': addonToken,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify(updatePayload)
+            });
+
+            if (!putRes.ok) {
+              const putErr = await putRes.text();
+              console.error("❌ CLOCKIFY PUT ERROR - Status:", putRes.status, "Message:", putErr);
+            } else {
+              console.log("✅ STATUS USPEŠNO PROMENJEN U SENT!");
+            }
+          } else {
+            const getErr = await getInvRes.text();
+            console.error("❌ CLOCKIFY GET ERROR - Status:", getInvRes.status, "Message:", getErr);
+          }
+        } catch (error: any) {
+          console.error("❌ CATCH BLOCK ERROR:", error.message);
+        }
+      } else {
+        console.error("❌ TOKEN NIJE PRONAĐEN");
+      }
+    }
+
+    return NextResponse.json({
+      message: `Invoice for client ${clientName} successfully synced!`,
+      type: "SUCCESS"
+    }, { status: 200, headers: corsHeaders });
+
+  } catch (error: any) {
+    return NextResponse.json({ 
+      message: error.message || "An error occurred",
+      type: "ERROR" 
+    }, { 
+      status: 200, 
+      headers: corsHeaders 
+    });
+  }
+}
