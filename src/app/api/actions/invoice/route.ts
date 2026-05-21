@@ -108,15 +108,19 @@ export async function POST(request: NextRequest) {
     const txnDate = formatDate(dataObj.issuedDate || dataObj.issueDate);
     const dueDate = formatDate(dataObj.dueDate);
 
-    const qbInvoiceBody: any = {
+
+ const qbInvoiceBody: any = {
       "Line": [
         {
-          "Amount": amountInDollars > 0 ? amountInDollars : 0,
+          "Amount": amountInDollars >= 0 ? amountInDollars : 0,
           "DetailType": "SalesItemLineDetail",
           "SalesItemLineDetail": {
             "ItemRef": {
               "value": "1", 
               "name": "Services"
+            },
+            "TaxCodeRef": {
+              "value": "TAX"
             }
           }
         }
