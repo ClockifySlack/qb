@@ -108,7 +108,6 @@ export async function POST(request: NextRequest) {
     const txnDate = formatDate(dataObj.issuedDate || dataObj.issueDate);
     const dueDate = formatDate(dataObj.dueDate);
 
-    // Povlačimo OBE postavke iz baze
     const { data: connectionData } = await supabase
       .from('qb_connections')
       .select('apply_tax, mark_as_sent')
@@ -195,21 +194,43 @@ export async function POST(request: NextRequest) {
           if (getInvRes.ok) {
             const clockifyInvoiceData = await getInvRes.json();
             
-            clockifyInvoiceData.status = "SENT";
+            // PRAVIMO ČIST PAYLOAD DA GA CLOCKIFY NE BI ODBIO
+            const updatePayload = {
+              clientId: clockifyInvoiceData.clientId,
+              currency: clockifyInvoiceData.currency,
+              dueDate: clockifyInvoiceData.dueDate,
+              issueDate: clockifyInvoiceData.issueDate || clockifyInvoiceData.issuedDate,
+              notes: clockifyInvoiceData.notes || "",
+              number: clockifyInvoiceData.number,
+              paymentTerms: clockifyInvoiceData.paymentTerms || 0,
+              status: "SENT",
+              subject: clockifyInvoiceData.subject || ""
+            };
 
-            await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
+            const putRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
               method: 'PUT',
               headers: {
                 'X-Addon-Token': addonToken,
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
               },
-              body: JSON.stringify(clockifyInvoiceData)
+              body: JSON.stringify(updatePayload)
             });
+
+            if (!putRes.ok) {
+              const putErr = await putRes.text();
+              console.error("Greška pri ažuriranju statusa u Clockify:", putErr);
+            } else {
+              console.log("Status uspešno promenjen u SENT!");
+            }
+          } else {
+            console.error("Nije moguće dohvatiti fakturu, status:", getInvRes.status);
           }
         } catch (clockifyError) {
           console.error("Failed to update status in Clockify:", clockifyError);
         }
+      } else {
+        console.error("Addon token nije pronađen u zaglavlju.");
       }
     }
 
