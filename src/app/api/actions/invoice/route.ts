@@ -46,7 +46,6 @@ export async function POST(request: NextRequest) {
       throw new Error("Invoice ID not recognized in payload");
     }
 
-    // Step 1: Check for duplicates
     const { data: existingSync } = await supabase
       .from('synced_invoices')
       .select('*')
@@ -62,7 +61,6 @@ export async function POST(request: NextRequest) {
 
     const qbAccessToken = await getValidQBTokens(realmId);
     
-    // Step 2: Handle QuickBooks Customer mapping/creation
     const clientName = dataObj.clientName || "Unknown Client";
     let qbCustomerId = "1";
 
@@ -102,7 +100,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Step 3: Formatting dates
     const formatDate = (dateStr?: string) => {
       if (!dateStr) return undefined;
       return dateStr.split('T')[0];
@@ -111,14 +108,15 @@ export async function POST(request: NextRequest) {
     const txnDate = formatDate(dataObj.issuedDate || dataObj.issueDate);
     const dueDate = formatDate(dataObj.dueDate);
 
-    // Step 4: Check if tax is enabled in DB
+    // Povlačimo OBE postavke iz baze
     const { data: connectionData } = await supabase
       .from('qb_connections')
-      .select('apply_tax')
+      .select('apply_tax, mark_as_sent')
       .eq('realm_id', realmId)
       .single();
 
     const shouldApplyTax = connectionData?.apply_tax !== false;
+    const shouldMarkAsSent = connectionData?.mark_as_sent !== false;
 
     const salesItemLineDetail: any = {
       "ItemRef": {
@@ -150,7 +148,6 @@ export async function POST(request: NextRequest) {
     if (txnDate) qbInvoiceBody.TxnDate = txnDate;
     if (dueDate) qbInvoiceBody.DueDate = dueDate;
 
-    // Send the invoice to QuickBooks
     const qbResponse = await fetch(`https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/invoice?minorversion=65`, {
       method: 'POST',
       headers: {
@@ -169,7 +166,6 @@ export async function POST(request: NextRequest) {
 
     const qbResult = await qbResponse.json();
 
-    // Step 5: Log synchronization in Supabase
     await supabase
       .from('synced_invoices')
       .insert({
@@ -177,41 +173,43 @@ export async function POST(request: NextRequest) {
         qb_invoice_id: qbResult.Invoice.Id
       });
 
-    // Step 6: Update invoice status in Clockify to "SENT"
-    const addonToken = request.headers.get('x-addon-token') || request.headers.get('X-Addon-Token');
-    
-    if (addonToken) {
-      try {
-        const payloadBase64 = addonToken.split('.')[1];
-        const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-        const workspaceId = payload.workspaceId || payload.workspace_id;
-        const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
-        const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-        
-        const getInvRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
-          headers: {
-            'X-Addon-Token': addonToken,
-            'Accept': 'application/json'
-          }
-        });
-
-        if (getInvRes.ok) {
-          const clockifyInvoiceData = await getInvRes.json();
+    // PROMENA STATUSA U CLOCKIFY-JU (Samo ako je korisnik dozvolio)
+    if (shouldMarkAsSent) {
+      const addonToken = request.headers.get('x-addon-token') || request.headers.get('X-Addon-Token');
+      
+      if (addonToken) {
+        try {
+          const payloadBase64 = addonToken.split('.')[1];
+          const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+          const workspaceId = payload.workspaceId || payload.workspace_id;
+          const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
+          const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
           
-          clockifyInvoiceData.status = "SENT";
-
-          await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
-            method: 'PUT',
+          const getInvRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
             headers: {
               'X-Addon-Token': addonToken,
-              'Content-Type': 'application/json',
               'Accept': 'application/json'
-            },
-            body: JSON.stringify(clockifyInvoiceData)
+            }
           });
+
+          if (getInvRes.ok) {
+            const clockifyInvoiceData = await getInvRes.json();
+            
+            clockifyInvoiceData.status = "SENT";
+
+            await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
+              method: 'PUT',
+              headers: {
+                'X-Addon-Token': addonToken,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify(clockifyInvoiceData)
+            });
+          }
+        } catch (clockifyError) {
+          console.error("Failed to update status in Clockify:", clockifyError);
         }
-      } catch (clockifyError) {
-        console.error("Failed to update status in Clockify, but invoice was sent to QB:", clockifyError);
       }
     }
 
