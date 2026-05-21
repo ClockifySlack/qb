@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     const qbInvoiceBody: any = {
       "Line": [
         {
-          "Amount": amountInDollars > 0 ? amountInDollars : 1980.00,
+          "Amount": amountInDollars > 0 ? amountInDollars : 0,
           "DetailType": "SalesItemLineDetail",
           "SalesItemLineDetail": {
             "ItemRef": {
