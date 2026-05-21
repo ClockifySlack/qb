@@ -169,15 +169,17 @@ export async function POST(request: NextRequest) {
         qb_invoice_id: qbResult.Invoice.Id
       });
 
-    // PROMENA STATUSA U CLOCKIFY-JU (Pravilno hvatanje tokena iz padajućeg menija)
+    // PROMENA STATUSA U CLOCKIFY-JU SA DEBUG LOGOVIMA
     if (shouldMarkAsSent) {
+      console.log("=== CLOCKIFY STATUS UPDATE START ===");
       const authHeader = request.headers.get('authorization');
       let addonToken = request.headers.get('x-addon-token') || request.headers.get('X-Addon-Token');
 
-      // Ako je token stigao kroz Authorization header, sečemo "Bearer " prefiks
       if (authHeader && authHeader.startsWith('Bearer ')) {
         addonToken = authHeader.substring(7);
       }
+
+      console.log("Token uspešno parsiran:", !!addonToken);
 
       if (addonToken) {
         try {
@@ -187,7 +189,10 @@ export async function POST(request: NextRequest) {
           const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
           const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
           
-          const getInvRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
+          const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`;
+          console.log("Gađamo URL:", apiUrl);
+
+          const getInvRes = await fetch(apiUrl, {
             headers: {
               'X-Addon-Token': addonToken,
               'Accept': 'application/json'
@@ -200,42 +205,3 @@ export async function POST(request: NextRequest) {
             const updatePayload = {
               clientId: clockifyInvoiceData.clientId,
               currency: clockifyInvoiceData.currency,
-              dueDate: clockifyInvoiceData.dueDate,
-              issueDate: clockifyInvoiceData.issueDate || clockifyInvoiceData.issuedDate,
-              notes: clockifyInvoiceData.notes || "",
-              number: clockifyInvoiceData.number,
-              paymentTerms: clockifyInvoiceData.paymentTerms || 0,
-              status: "SENT",
-              subject: clockifyInvoiceData.subject || ""
-            };
-
-            await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
-              method: 'PUT',
-              headers: {
-                'X-Addon-Token': addonToken,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-              },
-              body: JSON.stringify(updatePayload)
-            });
-          }
-        } catch (error) {
-        }
-      }
-    }
-
-    return NextResponse.json({
-      message: `Invoice for client ${clientName} successfully synced!`,
-      type: "SUCCESS"
-    }, { status: 200, headers: corsHeaders });
-
-  } catch (error: any) {
-    return NextResponse.json({ 
-      message: error.message || "An error occurred",
-      type: "ERROR" 
-    }, { 
-      status: 200, 
-      headers: corsHeaders 
-    });
-  }
-}
