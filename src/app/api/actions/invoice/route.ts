@@ -1,6 +1,13 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getValidQBTokens } from '../../../../lib/qbAuth';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,59 +23,207 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // 1. Agresivno hvatanje tokena
-    let clockifyToken = request.headers.get('x-addon-token') || request.headers.get('clockify-signature');
-    if (!clockifyToken) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-        clockifyToken = authHeader.substring(7);
-      }
+    let dataObj = body;
+    if (!dataObj.id) {
+       const nestedObject: any = Object.values(body).find(
+         (val: any) => val && typeof val === 'object' && val.id
+       );
+       if (nestedObject) {
+          dataObj = nestedObject;
+       }
     }
 
-    if (!clockifyToken) {
-      return NextResponse.json({ 
-        message: "TEST PAO: Nijedan token nije stigao u zaglavljima requesta.", 
+    const invoiceId = dataObj.id;
+    const invoiceNumber = dataObj.number || "INV-ACTION";
+    const amountInCents = dataObj.total || dataObj.amount || dataObj.balance || 0;
+    const amountInDollars = amountInCents / 100;
+    const realmId = "9341457104211536";
+
+    if (!invoiceId) throw new Error("Invoice ID not recognized in payload");
+
+    const { data: existingSync } = await supabase
+      .from('synced_invoices')
+      .select('*')
+      .eq('clockify_invoice_id', invoiceId)
+      .single();
+
+    if (existingSync) {
+      return NextResponse.json({
+        message: "This invoice has already been sent to QuickBooks!",
         type: "ERROR" 
       }, { status: 200, headers: corsHeaders });
     }
 
-    // 2. Dekodiranje tokena da izvučemo workspaceId i URL
-    const payloadBase64 = clockifyToken.split('.')[1];
-    const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-    
-    const workspaceId = payload.workspaceId || payload.workspace_id || "9341457104211536";
-    const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
-    const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-    const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}`;
+    const qbAccessToken = await getValidQBTokens(realmId);
+    const clientName = dataObj.clientName || "Unknown Client";
+    let qbCustomerId = "1";
 
-    // 3. PROSTI API POZIV (GET Workspace)
-    const testRes = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'X-Addon-Token': clockifyToken,
-        'Accept': 'application/json'
+    if (clientName !== "Unknown Client") {
+      const safeClientName = clientName.replace(/'/g, "''");
+      const queryUrl = `https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${encodeURIComponent(`select * from Customer where DisplayName = '${safeClientName}'`)}&minorversion=65`;
+      
+      const queryRes = await fetch(queryUrl, {
+        headers: { 'Authorization': `Bearer ${qbAccessToken}`, 'Accept': 'application/json' }
+      });
+      
+      if (queryRes.ok) {
+        const queryData = await queryRes.json();
+        if (queryData.QueryResponse && queryData.QueryResponse.Customer && queryData.QueryResponse.Customer.length > 0) {
+          qbCustomerId = queryData.QueryResponse.Customer[0].Id;
+        } else {
+          const createRes = await fetch(`https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/customer?minorversion=65`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${qbAccessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ DisplayName: clientName })
+          });
+          if (createRes.ok) {
+            const createData = await createRes.json();
+            qbCustomerId = createData.Customer.Id;
+          }
+        }
       }
+    }
+
+    const formatDate = (dateStr?: string) => {
+      if (!dateStr) return undefined;
+      return dateStr.split('T')[0];
+    };
+
+    const txnDate = formatDate(dataObj.issuedDate || dataObj.issueDate);
+    const dueDate = formatDate(dataObj.dueDate);
+
+    const { data: connectionData } = await supabase
+      .from('qb_connections')
+      .select('apply_tax, mark_as_sent')
+      .eq('realm_id', realmId)
+      .single();
+
+    const shouldApplyTax = connectionData?.apply_tax !== false;
+    const shouldMarkAsSent = connectionData?.mark_as_sent !== false;
+
+    const salesItemLineDetail: any = { "ItemRef": { "value": "1", "name": "Services" } };
+    salesItemLineDetail["TaxCodeRef"] = { "value": shouldApplyTax ? "TAX" : "NON" };
+
+    const qbInvoiceBody: any = {
+      "Line": [{
+        "Amount": amountInDollars >= 0 ? amountInDollars : 0,
+        "DetailType": "SalesItemLineDetail",
+        "SalesItemLineDetail": salesItemLineDetail
+      }],
+      "CustomerRef": { "value": qbCustomerId },
+      "DocNumber": invoiceNumber
+    };
+
+    if (txnDate) qbInvoiceBody.TxnDate = txnDate;
+    if (dueDate) qbInvoiceBody.DueDate = dueDate;
+
+    const qbResponse = await fetch(`https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/invoice?minorversion=65`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${qbAccessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(qbInvoiceBody)
     });
 
-    const testStatus = testRes.status;
-    const testText = await testRes.text();
+    if (!qbResponse.ok) throw new Error("QuickBooks API rejected the request to create the invoice");
 
-    // 4. Ispisujemo rezultat direktno na tvoj ekran u Clockify-ju
-    if (testRes.ok) {
-      return NextResponse.json({ 
-        message: `TEST USPEŠAN! Status: ${testStatus}. Token radi za API pozive!`, 
-        type: "SUCCESS" 
-      }, { status: 200, headers: corsHeaders });
-    } else {
-      return NextResponse.json({ 
-        message: `TEST PAO (Status ${testStatus}): ${testText.substring(0, 150)}`, 
-        type: "ERROR" 
-      }, { status: 200, headers: corsHeaders });
+    const qbResult = await qbResponse.json();
+
+    await supabase
+      .from('synced_invoices')
+      .insert({ clockify_invoice_id: invoiceId, qb_invoice_id: qbResult.Invoice.Id });
+
+    // ====================================================================
+    // CLOCKIFY STATUS UPDATE SA AGRESIVNIM LOGOVIMA
+    // ====================================================================
+    if (shouldMarkAsSent) {
+      console.log("=== POČETAK CLOCKIFY API POZIVA ===");
+
+      const allHeaders: Record<string, string> = {};
+      request.headers.forEach((value, key) => { allHeaders[key] = value; });
+      console.log("1. ZAGLAVLJA:", JSON.stringify(allHeaders, null, 2));
+
+      let clockifyToken = request.headers.get('clockify-signature') || request.headers.get('x-addon-token');
+      if (!clockifyToken) {
+        const authHeader = request.headers.get('authorization');
+        if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+          clockifyToken = authHeader.substring(7);
+        }
+      }
+
+      console.log("2. PRONAĐEN TOKEN:", clockifyToken ? "DA" : "NE");
+
+      if (clockifyToken) {
+        try {
+          const payloadBase64 = clockifyToken.split('.')[1];
+          const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+          console.log("3. TOKEN PAYLOAD:", JSON.stringify(payload, null, 2));
+          
+          const workspaceId = payload.workspaceId || payload.workspace_id || dataObj.workspaceId;
+          const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
+          const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+          const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`;
+          
+          console.log("4. GAĐAMO URL:", apiUrl);
+
+          const getInvRes = await fetch(apiUrl, {
+            headers: {
+              'X-Addon-Token': clockifyToken,
+              'Accept': 'application/json'
+            }
+          });
+
+          console.log("5. GET STATUS:", getInvRes.status);
+
+          if (getInvRes.ok) {
+            const clockifyInvoiceData = await getInvRes.json();
+            const updatePayload = {
+              clientId: clockifyInvoiceData.clientId,
+              currency: clockifyInvoiceData.currency,
+              dueDate: clockifyInvoiceData.dueDate,
+              issueDate: clockifyInvoiceData.issueDate || clockifyInvoiceData.issuedDate,
+              notes: clockifyInvoiceData.notes || "",
+              number: clockifyInvoiceData.number,
+              paymentTerms: clockifyInvoiceData.paymentTerms || 0,
+              status: "SENT",
+              subject: clockifyInvoiceData.subject || "",
+              items: clockifyInvoiceData.items || [] 
+            };
+
+            const putRes = await fetch(apiUrl, {
+              method: 'PUT',
+              headers: {
+                'X-Addon-Token': clockifyToken,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify(updatePayload)
+            });
+
+            console.log("6. PUT STATUS:", putRes.status);
+            if (!putRes.ok) {
+                const putErr = await putRes.text();
+                console.error("7. PUT GREŠKA:", putErr);
+            }
+          } else {
+             const getErr = await getInvRes.text();
+             console.error("7. GET GREŠKA:", getErr);
+          }
+        } catch (error: any) {
+          console.error("8. CATCH ERROR:", error.message);
+        }
+      } else {
+          console.error("9. TOKEN NIJE PRONAĐEN NI U JEDNOM ZAGLAVLJU!");
+      }
+      console.log("=== KRAJ CLOCKIFY API POZIVA ===");
     }
+
+    return NextResponse.json({
+      message: `Invoice for client ${clientName} successfully synced!`,
+      type: "SUCCESS"
+    }, { status: 200, headers: corsHeaders });
 
   } catch (error: any) {
     return NextResponse.json({ 
-      message: `Greška u kodu skripte: ${error.message}`, 
+      message: error.message || "An error occurred",
       type: "ERROR" 
     }, { status: 200, headers: corsHeaders });
   }
