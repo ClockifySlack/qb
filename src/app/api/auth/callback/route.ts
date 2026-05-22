@@ -14,13 +14,10 @@ export async function GET(request: NextRequest) {
     const code = searchParams.get('code');
     const realmId = searchParams.get('realmId');
 
-    // 1. Provera da li nam je QuickBooks poslao parametre
     if (!code || !realmId) {
-      console.error("CALLBACK ERROR: Nedostaje 'code' ili 'realmId' u URL-u.");
       return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
     }
 
-    // 2. Traženje tokena od Intuit-a
     const authString = Buffer.from(`${process.env.QB_CLIENT_ID}:${process.env.QB_CLIENT_SECRET}`).toString('base64');
 
     const tokenResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
@@ -38,14 +35,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (!tokenResponse.ok) {
-      const errText = await tokenResponse.text();
-      console.error("CALLBACK ERROR: Intuit API je odbio zamenu koda za token. Razlog:", errText);
       return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
     }
 
     const tokenData = await tokenResponse.json();
 
-    // 3. Čuvanje u bazu koristeći moćni UPSERT (nema više pucanja zbog duplikata)
     const { error: dbError } = await supabase
       .from('qb_connections')
       .upsert({
@@ -58,15 +52,12 @@ export async function GET(request: NextRequest) {
       }, { onConflict: 'realm_id' });
 
     if (dbError) {
-      console.error("CALLBACK ERROR: Supabase nije uspeo da sačuva podatke. Greška:", dbError);
       return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
     }
 
-    // Sve je prošlo super
     return NextResponse.redirect(new URL('/dashboard?status=success', request.url));
 
   } catch (error: any) {
-    console.error("CALLBACK ERROR: Kritična greška u kodu skripte:", error.message);
     return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
   }
 }
