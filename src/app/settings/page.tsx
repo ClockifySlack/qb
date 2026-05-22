@@ -12,11 +12,12 @@ export default function Settings() {
   
   const [applyTax, setApplyTax] = useState(true);
   const [isUpdatingTax, setIsUpdatingTax] = useState(false);
-
   const [markAsSent, setMarkAsSent] = useState(true);
   const [isUpdatingSent, setIsUpdatingSent] = useState(false);
 
-  // NOVO: State za paginaciju
+  // NOVO: State za praćenje gašenja konekcije
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+
   const [currentPage, setCurrentPage] = useState(1);
   const invoicesPerPage = 20;
 
@@ -92,6 +93,25 @@ export default function Settings() {
     window.open('/api/auth/qb', 'QuickBooksAuthorization', `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`);
   };
 
+  // NOVO: Funkcija za raskidanje konekcije
+  const handleDisconnect = async () => {
+    if (!confirm("Are you sure you want to disconnect your QuickBooks account? This will revoke all access tokens.")) {
+      return;
+    }
+    setIsDisconnecting(true);
+    try {
+      const response = await fetch('/api/auth/disconnect', { method: 'POST' });
+      if (response.ok) {
+        setIsConnected(false);
+        setInvoices([]);
+      }
+    } catch (err) {
+      console.error("Failed to disconnect:", err);
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
   const handleTaxToggle = async () => {
     const newValue = !applyTax;
     setApplyTax(newValue);
@@ -143,7 +163,6 @@ export default function Settings() {
     }
   };
 
-  // NOVO: Logika za računanje paginacije
   const indexOfLastInvoice = currentPage * invoicesPerPage;
   const indexOfFirstInvoice = indexOfLastInvoice - invoicesPerPage;
   const currentInvoices = invoices.slice(indexOfFirstInvoice, indexOfLastInvoice);
@@ -176,7 +195,17 @@ export default function Settings() {
           </div>
           <div className="flex-shrink-0">
             {isCheckingStatus ? (<span className="inline-flex items-center text-sm text-slate-400 animate-pulse">Checking...</span>) : isConnected ? (
-              <span className="inline-flex items-center bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 rounded-lg">✓ Connected</span>
+              // ISPRAVLJENO: Dodato Disconnect dugme pored Connected bedža
+              <div className="flex items-center space-x-3">
+                <span className="inline-flex items-center bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 rounded-lg">✓ Connected</span>
+                <button 
+                  onClick={handleDisconnect}
+                  disabled={isDisconnecting}
+                  className="inline-flex items-center justify-center bg-white border border-slate-200 hover:border-rose-200 text-slate-600 hover:text-rose-600 font-medium text-xs py-2 px-3 rounded-lg transition-colors shadow-sm focus:outline-none"
+                >
+                  {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                </button>
+              </div>
             ) : (
               <button onClick={openAuthPopup} className="inline-flex items-center justify-center bg-[#2ca01c] hover:bg-[#1e6b13] text-white font-medium text-sm py-2.5 px-5 rounded-lg transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500">Connect QuickBooks</button>
             )}
@@ -229,7 +258,6 @@ export default function Settings() {
                     ) : invoices.length === 0 ? (
                       <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">No invoices found.</td></tr>
                     ) : (
-                      // NOVO: Mapiramo samo currentInvoices umesto celog niza
                       currentInvoices.map((inv) => {
                         const status = syncStatus[inv.id] || 'idle';
                         return (
@@ -252,7 +280,6 @@ export default function Settings() {
                   </tbody>
                 </table>
                 
-                {/* NOVO: Paginacija UI */}
                 {invoices.length > invoicesPerPage && (
                   <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between">
                     <div>
