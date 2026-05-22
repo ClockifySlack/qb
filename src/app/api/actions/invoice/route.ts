@@ -35,13 +35,13 @@ export async function POST(request: NextRequest) {
 
     const invoiceId = dataObj.id;
     const invoiceNumber = dataObj.number || "INV-ACTION";
-    
     const amountInCents = dataObj.total || dataObj.amount || dataObj.balance || 0;
     const amountInDollars = amountInCents / 100;
-    
     const realmId = "9341457104211536";
 
-    if (!invoiceId) throw new Error("Invoice ID not recognized in payload");
+    if (!invoiceId) {
+      throw new Error("Invoice ID not recognized in payload");
+    }
 
     const { data: existingSync } = await supabase
       .from('synced_invoices')
@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
             },
             body: JSON.stringify({ DisplayName: clientName })
           });
+          
           if (createRes.ok) {
             const createData = await createRes.json();
             qbCustomerId = createData.Customer.Id;
@@ -100,19 +101,21 @@ export async function POST(request: NextRequest) {
     const txnDate = formatDate(dataObj.issuedDate || dataObj.issueDate);
     const dueDate = formatDate(dataObj.dueDate);
 
-    // KORAK: Očitavamo postavke, ali SADA povlačimo i sačuvani token!
     const { data: connectionData } = await supabase
       .from('qb_connections')
-      .select('apply_tax, mark_as_sent, clockify_token')
+      .select('apply_tax, mark_as_sent')
       .eq('realm_id', realmId)
       .single();
 
     const shouldApplyTax = connectionData?.apply_tax !== false;
     const shouldMarkAsSent = connectionData?.mark_as_sent !== false;
-    const dbToken = connectionData?.clockify_token;
 
     const salesItemLineDetail: any = { "ItemRef": { "value": "1", "name": "Services" } };
-    salesItemLineDetail["TaxCodeRef"] = { "value": shouldApplyTax ? "TAX" : "NON" };
+    if (shouldApplyTax) {
+      salesItemLineDetail["TaxCodeRef"] = { "value": "TAX" };
+    } else {
+      salesItemLineDetail["TaxCodeRef"] = { "value": "NON" };
+    }
 
     const qbInvoiceBody: any = {
       "Line": [{
@@ -137,55 +140,79 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(qbInvoiceBody)
     });
 
-    if (!qbResponse.ok) throw new Error("QuickBooks API rejected the request to create the invoice");
+    if (!qbResponse.ok) {
+      throw new Error("QuickBooks API rejected the request to create the invoice");
+    }
+
     const qbResult = await qbResponse.json();
 
     await supabase
       .from('synced_invoices')
-      .insert({ clockify_invoice_id: invoiceId, qb_invoice_id: qbResult.Invoice.Id });
+      .insert({
+        clockify_invoice_id: invoiceId,
+        qb_invoice_id: qbResult.Invoice.Id
+      });
 
     // ====================================================================
-    // PROMENA STATUSA (Korišćenje sačuvanog tokena iz Baze)
+    // PROMENA STATUSA U CLOCKIFY-JU (Agresivno hvatanje tokena)
     // ====================================================================
-    if (shouldMarkAsSent && dbToken) {
-      try {
-        const payloadBase64 = dbToken.split('.')[1];
-        const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-        const workspaceId = payload.workspaceId || payload.workspace_id || dataObj.workspaceId;
-        const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
-        const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-        
-        const getInvRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
-          headers: { 'X-Addon-Token': dbToken, 'Accept': 'application/json' }
-        });
+    if (shouldMarkAsSent) {
+      // Lovimo token na svim mestima gde ga Clockify može poslati
+      let clockifyToken = request.headers.get('x-addon-token') || 
+                          request.headers.get('clockify-signature');
 
-        if (getInvRes.ok) {
-          const clockifyInvoiceData = await getInvRes.json();
-          
-          const updatePayload = {
-            clientId: clockifyInvoiceData.clientId,
-            currency: clockifyInvoiceData.currency,
-            dueDate: clockifyInvoiceData.dueDate,
-            issueDate: clockifyInvoiceData.issueDate || clockifyInvoiceData.issuedDate,
-            notes: clockifyInvoiceData.notes || "",
-            number: clockifyInvoiceData.number,
-            paymentTerms: clockifyInvoiceData.paymentTerms || 0,
-            status: "SENT",
-            subject: clockifyInvoiceData.subject || "",
-            items: clockifyInvoiceData.items || [] 
-          };
-
-          await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
-            method: 'PUT',
-            headers: {
-              'X-Addon-Token': dbToken,
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            body: JSON.stringify(updatePayload)
-          });
+      if (!clockifyToken) {
+        const authHeader = request.headers.get('authorization');
+        if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+          clockifyToken = authHeader.substring(7);
         }
-      } catch (error) {
+      }
+
+      // Ako je Clockify signature (token) tu, koristimo ga
+      if (clockifyToken) {
+        try {
+          const payloadBase64 = clockifyToken.split('.')[1];
+          const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+          
+          const workspaceId = payload.workspaceId || payload.workspace_id || dataObj.workspaceId;
+          const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
+          const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+          
+          const getInvRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
+            headers: {
+              'X-Addon-Token': clockifyToken, // Koristimo token iz zaglavlja!
+              'Accept': 'application/json'
+            }
+          });
+
+          if (getInvRes.ok) {
+            const clockifyInvoiceData = await getInvRes.json();
+            
+            const updatePayload = {
+              clientId: clockifyInvoiceData.clientId,
+              currency: clockifyInvoiceData.currency,
+              dueDate: clockifyInvoiceData.dueDate,
+              issueDate: clockifyInvoiceData.issueDate || clockifyInvoiceData.issuedDate,
+              notes: clockifyInvoiceData.notes || "",
+              number: clockifyInvoiceData.number,
+              paymentTerms: clockifyInvoiceData.paymentTerms || 0,
+              status: "SENT",
+              subject: clockifyInvoiceData.subject || "",
+              items: clockifyInvoiceData.items || [] 
+            };
+
+            await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
+              method: 'PUT',
+              headers: {
+                'X-Addon-Token': clockifyToken, // Ponovo šaljemo isti token
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify(updatePayload)
+            });
+          }
+        } catch (error) {
+        }
       }
     }
 
@@ -198,6 +225,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       message: error.message || "An error occurred",
       type: "ERROR" 
-    }, { status: 200, headers: corsHeaders });
+    }, { 
+      status: 200, 
+      headers: corsHeaders 
+    });
   }
 }
