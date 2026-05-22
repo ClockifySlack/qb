@@ -15,8 +15,9 @@ export default function Settings() {
   const [markAsSent, setMarkAsSent] = useState(true);
   const [isUpdatingSent, setIsUpdatingSent] = useState(false);
 
-  // NOVO: State za praćenje gašenja konekcije
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  // NOVO: State za prikazivanje našeg custom modala umesto window.confirm
+  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const invoicesPerPage = 20;
@@ -93,17 +94,20 @@ export default function Settings() {
     window.open('/api/auth/qb', 'QuickBooksAuthorization', `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`);
   };
 
-  // NOVO: Funkcija za raskidanje konekcije
-  const handleDisconnect = async () => {
-    if (!confirm("Are you sure you want to disconnect your QuickBooks account? This will revoke all access tokens.")) {
-      return;
-    }
+  // NOVO: Funkcija samo otvara naš custom modal
+  const handleDisconnectClick = () => {
+    setShowDisconnectModal(true);
+  };
+
+  // NOVO: Funkcija koja se okida kada korisnik klikne "Yes" u modalu
+  const confirmDisconnect = async () => {
     setIsDisconnecting(true);
     try {
       const response = await fetch('/api/auth/disconnect', { method: 'POST' });
       if (response.ok) {
         setIsConnected(false);
         setInvoices([]);
+        setShowDisconnectModal(false); // Zatvaramo modal
       }
     } catch (err) {
       console.error("Failed to disconnect:", err);
@@ -172,7 +176,7 @@ export default function Settings() {
   const prevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
 
   return (
-    <div className="bg-white min-h-screen font-sans antialiased text-slate-800">
+    <div className="bg-white min-h-screen font-sans antialiased text-slate-800 relative">
       <div className="max-w-3xl mx-auto px-4 py-8">
         <div className="flex items-center space-x-2 text-xs text-slate-400 mb-2">
           <span>Add-ons</span><span>/</span><span className="text-slate-600 font-medium">QuickBooks Payroll Bridge</span>
@@ -195,15 +199,14 @@ export default function Settings() {
           </div>
           <div className="flex-shrink-0">
             {isCheckingStatus ? (<span className="inline-flex items-center text-sm text-slate-400 animate-pulse">Checking...</span>) : isConnected ? (
-              // ISPRAVLJENO: Dodato Disconnect dugme pored Connected bedža
               <div className="flex items-center space-x-3">
                 <span className="inline-flex items-center bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 rounded-lg">✓ Connected</span>
                 <button 
-                  onClick={handleDisconnect}
+                  onClick={handleDisconnectClick} // ISPRAVLJENO: Poziva funkciju za otvaranje modala
                   disabled={isDisconnecting}
                   className="inline-flex items-center justify-center bg-white border border-slate-200 hover:border-rose-200 text-slate-600 hover:text-rose-600 font-medium text-xs py-2 px-3 rounded-lg transition-colors shadow-sm focus:outline-none"
                 >
-                  {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                  Disconnect
                 </button>
               </div>
             ) : (
@@ -237,81 +240,4 @@ export default function Settings() {
               </div>
 
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-slate-900">Recent Invoices</h2>
-              </div>
-              
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                <table className="w-full text-left text-sm whitespace-nowrap">
-                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                    <tr>
-                      <th className="px-6 py-4 font-medium">Invoice No.</th>
-                      <th className="px-6 py-4 font-medium">Client</th>
-                      <th className="px-6 py-4 font-medium">Amount</th>
-                      <th className="px-6 py-4 font-medium text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {isLoadingInvoices ? (
-                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm animate-pulse">Fetching invoices from Clockify...</td></tr>
-                    ) : invoiceError ? (
-                      <tr><td colSpan={4} className="px-6 py-8 text-center bg-rose-50"><span className="text-rose-600 block">{invoiceError}</span></td></tr>
-                    ) : invoices.length === 0 ? (
-                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">No invoices found.</td></tr>
-                    ) : (
-                      currentInvoices.map((inv) => {
-                        const status = syncStatus[inv.id] || 'idle';
-                        return (
-                          <tr key={inv.id} className="hover:bg-slate-50/50">
-                            <td className="px-6 py-4 font-medium">{inv.number}</td>
-                            <td className="px-6 py-4 text-slate-600">{inv.client}</td>
-                            <td className="px-6 py-4 font-medium">${Number(inv.amount).toFixed(2)}</td>
-                            <td className="px-6 py-4 text-right">
-                              {status === 'idle' && (
-                                <button onClick={() => handleSyncInvoice(inv.id, inv.number, inv.amount, inv.client)} className="text-xs font-medium bg-white text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg hover:border-cyan-300">Sync to QB</button>
-                              )}
-                              {status === 'loading' && (<span className="text-xs font-medium text-slate-400 animate-pulse">Syncing...</span>)}
-                              {status === 'success' && (<span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">✓ Synced</span>)}
-                              {status === 'error' && (<span className="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">✕ Failed</span>)}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-                
-                {invoices.length > invoicesPerPage && (
-                  <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-slate-500">
-                        Showing <span className="font-semibold text-slate-700">{indexOfFirstInvoice + 1}</span> to <span className="font-semibold text-slate-700">{Math.min(indexOfLastInvoice, invoices.length)}</span> of <span className="font-semibold text-slate-700">{invoices.length}</span> results
-                      </p>
-                    </div>
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={prevPage}
-                        disabled={currentPage === 1}
-                        className="px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Previous
-                      </button>
-                      <button
-                        onClick={nextPage}
-                        disabled={currentPage === totalPages}
-                        className="px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="bg-slate-50 border p-10 text-center rounded-xl"><span className="text-4xl opacity-50">🔒</span><p className="mt-2 text-sm text-slate-500">Please connect your QuickBooks account.</p></div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+                <h2 className="text-lg font-bold text-slate-
