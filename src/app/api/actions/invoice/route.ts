@@ -9,10 +9,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// KLJUČNA ISPRAVKA: Dodat 'clockify-signature' u dozvoljene CORS headere
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-addon-token, x-workspace-id, Accept',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-addon-token, clockify-signature, x-workspace-id, Accept',
 };
 
 export async function OPTIONS() {
@@ -169,17 +170,17 @@ export async function POST(request: NextRequest) {
         qb_invoice_id: qbResult.Invoice.Id
       });
 
-    // PROMENA STATUSA U CLOCKIFY-JU SA DEBUG LOGOVIMA
+    // PROMENA STATUSA U CLOCKIFY-JU
     if (shouldMarkAsSent) {
-      console.log("=== CLOCKIFY STATUS UPDATE START ===");
-      const authHeader = request.headers.get('authorization');
-      let addonToken = request.headers.get('x-addon-token') || request.headers.get('X-Addon-Token');
+      // Sada skupljamo token iz SVIH mogućih mesta koje Clockify može da koristi
+      let addonToken = request.headers.get('clockify-signature') || 
+                       request.headers.get('x-addon-token') || 
+                       request.headers.get('X-Addon-Token');
 
-      if (authHeader && authHeader.startsWith('Bearer ')) {
+      const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
+      if (!addonToken && authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
         addonToken = authHeader.substring(7);
       }
-
-      console.log("Token uspešno parsiran:", !!addonToken);
 
       if (addonToken) {
         try {
@@ -189,10 +190,7 @@ export async function POST(request: NextRequest) {
           const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
           const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
           
-          const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`;
-          console.log("Gađamo URL:", apiUrl);
-
-          const getInvRes = await fetch(apiUrl, {
+          const getInvRes = await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
             headers: {
               'X-Addon-Token': addonToken,
               'Accept': 'application/json'
@@ -212,10 +210,10 @@ export async function POST(request: NextRequest) {
               paymentTerms: clockifyInvoiceData.paymentTerms || 0,
               status: "SENT",
               subject: clockifyInvoiceData.subject || "",
-              items: clockifyInvoiceData.items || [] // Ubačeno jer je možda obavezno
+              items: clockifyInvoiceData.items || [] 
             };
 
-            const putRes = await fetch(apiUrl, {
+            await fetch(`${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`, {
               method: 'PUT',
               headers: {
                 'X-Addon-Token': addonToken,
@@ -224,22 +222,9 @@ export async function POST(request: NextRequest) {
               },
               body: JSON.stringify(updatePayload)
             });
-
-            if (!putRes.ok) {
-              const putErr = await putRes.text();
-              console.error("❌ CLOCKIFY PUT ERROR - Status:", putRes.status, "Message:", putErr);
-            } else {
-              console.log("✅ STATUS USPEŠNO PROMENJEN U SENT!");
-            }
-          } else {
-            const getErr = await getInvRes.text();
-            console.error("❌ CLOCKIFY GET ERROR - Status:", getInvRes.status, "Message:", getErr);
           }
-        } catch (error: any) {
-          console.error("❌ CATCH BLOCK ERROR:", error.message);
+        } catch (error) {
         }
-      } else {
-        console.error("❌ TOKEN NIJE PRONAĐEN");
       }
     }
 
