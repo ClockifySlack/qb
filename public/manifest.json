@@ -1,5 +1,4 @@
 {
-  "schemaVersion": "1.5.1",
   "key": "clockify-quickbooks-bridge",
   "name": "QuickBooks Payroll Bridge",
   "description": "Automatically send and synchronize invoices directly to your QuickBooks account.",
