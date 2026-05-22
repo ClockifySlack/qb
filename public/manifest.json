@@ -33,12 +33,6 @@
       "label": "Send to QuickBooks",
       "path": "/api/actions/invoice",
       "accessLevel": "ADMINS"
-    },
-    {
-      "type": "invoices.column",
-      "label": "QB Sync",
-      "path": "/ui/qb-status",
-      "accessLevel": "ADMINS"
     }
   ]
 }
