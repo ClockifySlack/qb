@@ -277,4 +277,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       message: error.message || "An error occurred",
       type: "ERROR" 
-    }, {
+    }, { 
+      status: 200, 
+      headers: corsHeaders 
+    });
+  }
+}
