@@ -169,46 +169,35 @@ export async function POST(request: NextRequest) {
         qb_invoice_id: qbResult.Invoice.Id
       });
 
-    // ====================================================================
-    // DEBAGOVANJE CLOCKIFY STATUSA 
-    // ====================================================================
     if (shouldMarkAsSent) {
-      console.log("=== CLOCKIFY STATUS UPDATE DEBUG START ===");
-      
-      // 1. Logujemo SVE headere koje smo primili
-      const allHeaders: Record<string, string> = {};
-      request.headers.forEach((value, key) => {
-        allHeaders[key] = value;
-      });
-      console.log("1. PRIMLJENI HEADER-i:", JSON.stringify(allHeaders, null, 2));
+      const { data: tokenRecords } = await supabase
+        .from('clockify_tokens')
+        .select('*')
+        .limit(1);
 
-      // 2. Tražimo token na svim mogućim mestima
-      let addonToken = request.headers.get('clockify-signature') || 
-                       request.headers.get('x-addon-token') || 
-                       request.headers.get('X-Addon-Token');
+      let addonToken = null;
+      let workspaceId = dataObj.workspaceId || null;
+      let baseUrl = 'https://api.clockify.me/api';
 
-      const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
-      if (!addonToken && authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-        addonToken = authHeader.substring(7);
+      if (tokenRecords && tokenRecords.length > 0) {
+        const record = tokenRecords[0];
+        addonToken = record.token || record.addon_token || record.access_token || record.x_addon_token;
+        
+        if (addonToken && addonToken.includes('.')) {
+          try {
+            const payloadBase64 = addonToken.split('.')[1];
+            const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+            workspaceId = payload.workspaceId || payload.workspace_id || workspaceId;
+            baseUrl = payload.backendUrl || baseUrl;
+          } catch (e) {}
+        }
       }
 
-      console.log("2. TOKEN PRONAĐEN:", !!addonToken);
-
-      if (addonToken) {
+      if (addonToken && workspaceId) {
         try {
-          // 3. Dekodiramo JWT Payload
-          const payloadBase64 = addonToken.split('.')[1];
-          const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-          console.log("3. DEKODIRAN PAYLOAD:", JSON.stringify(payload, null, 2));
-
-          const workspaceId = payload.workspaceId || payload.workspace_id;
-          const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
           const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
           const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`;
           
-          console.log("4. API URL ZA GET/PUT:", apiUrl);
-
-          // 4. GET zahtev
           const getInvRes = await fetch(apiUrl, {
             headers: {
               'X-Addon-Token': addonToken,
@@ -216,12 +205,9 @@ export async function POST(request: NextRequest) {
             }
           });
 
-          console.log("5. GET INVOICE STATUS:", getInvRes.status);
-
           if (getInvRes.ok) {
             const clockifyInvoiceData = await getInvRes.json();
             
-            // 5. Priprema PUT payload-a
             const updatePayload = {
               clientId: clockifyInvoiceData.clientId,
               currency: clockifyInvoiceData.currency,
@@ -235,10 +221,7 @@ export async function POST(request: NextRequest) {
               items: clockifyInvoiceData.items || [] 
             };
 
-            console.log("6. PAYLOAD SPREMAN ZA SLANJE:", JSON.stringify(updatePayload, null, 2));
-
-            // 6. PUT zahtev
-            const putRes = await fetch(apiUrl, {
+            await fetch(apiUrl, {
               method: 'PUT',
               headers: {
                 'X-Addon-Token': addonToken,
@@ -247,24 +230,9 @@ export async function POST(request: NextRequest) {
               },
               body: JSON.stringify(updatePayload)
             });
-
-            console.log("7. PUT INVOICE STATUS:", putRes.status);
-
-            if (!putRes.ok) {
-              const putErr = await putRes.text();
-              console.error("8. ❌ CLOCKIFY PUT ERROR REASON:", putErr);
-            } else {
-              console.log("8. ✅ STATUS USPEŠNO PROMENJEN U SENT!");
-            }
-          } else {
-            const getErr = await getInvRes.text();
-            console.error("5. ❌ CLOCKIFY GET ERROR REASON:", getErr);
           }
-        } catch (error: any) {
-          console.error("❌ CATCH BLOCK ERROR:", error.message);
+        } catch (error) {
         }
-      } else {
-        console.error("❌ TOKEN NIJE PRONAĐEN NI U JEDNOM ZAGLAVLJU");
       }
     }
 
