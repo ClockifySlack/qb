@@ -1,43 +1,38 @@
 {
-  "key": "clockify-quickbooks-bridge",
-  "name": "QuickBooks Payroll Bridge",
-  "description": "Automatically send and synchronize invoices directly to your QuickBooks account.",
-  "baseUrl": "https://qb-opal.vercel.app",
-  "minimalSubscriptionPlan": "STANDARD",
-  "scopes": [
-    "WORKSPACE_READ",
-    "INVOICE_READ",
-    "INVOICE_WRITE"
-  ],
-  "lifecycle": [
-    {
-      "path": "/api/marketplace/install",
-      "type": "INSTALLED"
-    },
-    {
-      "path": "/api/marketplace/uninstall",
-      "type": "DELETED"
-    }
-  ],
-  "settings": "/settings",
-  "components": [
-    {
-      "type": "sidebar",
-      "label": "QuickBooks Bridge",
-      "path": "/settings",
-      "accessLevel": "ADMINS"
-    },
-    {
-      "type": "invoices.action",
-      "label": "Send to QuickBooks",
-      "path": "/api/actions/invoice",
-      "accessLevel": "ADMINS"
-    },
-    {
-      "type": "invoices.column",
-      "label": "QB Sync",
-      "path": "/ui/qb-status",
-      "accessLevel": "ADMINS"
-    }
-  ]
+  "schemaVersion": "1.5.1",
+  "key": "clockify-quickbooks-bridge",
+  "name": "QuickBooks Payroll Bridge",
+  "description": "Automatsko slanje i sinhronizacija faktura i radnih sati direktno u vaš QuickBooks nalog.",
+  "baseUrl": "https://qb-opal.vercel.app",
+  "minimalSubscriptionPlan": "STANDARD",
+  "scopes": [
+    "WORKSPACE_READ",
+    "INVOICE_READ",
+    "INVOICE_WRITE"
+  ],
+  "lifecycle": [
+    {
+      "path": "/api/marketplace/install",
+      "type": "INSTALLED"
+    },
+    {
+      "path": "/api/marketplace/uninstall",
+      "type": "DELETED"
+    }
+  ],
+  "settings": "/settings",
+  "components": [
+    {
+      "type": "sidebar",
+      "label": "QuickBooks Bridge",
+      "path": "/settings",
+      "accessLevel": "ADMINS"
+    },
+    {
+      "type": "invoices.action",
+      "label": "Send to QuickBooks",
+      "path": "/api/actions/invoice",
+      "accessLevel": "ADMINS"
+    }
+  ]
 }
