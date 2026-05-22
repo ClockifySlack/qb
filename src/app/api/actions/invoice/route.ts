@@ -137,7 +137,6 @@ export async function POST(request: NextRequest) {
     if (shouldMarkAsSent) {
       console.log("=== POČETAK CLOCKIFY API POZIVA ===");
 
-      // ISPRAVLJENO PARSIRANJE TOKENA: Hvata JWT sa ili bez "Bearer " prefiksa
       let clockifyToken = request.headers.get('clockify-signature') || request.headers.get('x-addon-token');
       
       if (!clockifyToken) {
@@ -174,11 +173,13 @@ export async function POST(request: NextRequest) {
 
           if (getInvRes.ok) {
             const clockifyInvoiceData = await getInvRes.json();
+            
+            // KLJUČNA ISPRAVKA: Promenjeno iz issueDate u issuedDate
             const updatePayload = {
               clientId: clockifyInvoiceData.clientId,
               currency: clockifyInvoiceData.currency,
               dueDate: clockifyInvoiceData.dueDate,
-              issueDate: clockifyInvoiceData.issueDate || clockifyInvoiceData.issuedDate,
+              issuedDate: clockifyInvoiceData.issuedDate || clockifyInvoiceData.issueDate, 
               notes: clockifyInvoiceData.notes || "",
               number: clockifyInvoiceData.number,
               paymentTerms: clockifyInvoiceData.paymentTerms || 0,
