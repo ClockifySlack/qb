@@ -132,37 +132,36 @@ export async function POST(request: NextRequest) {
       .insert({ clockify_invoice_id: invoiceId, qb_invoice_id: qbResult.Invoice.Id });
 
     // ====================================================================
-    // CLOCKIFY STATUS UPDATE SA AGRESIVNIM LOGOVIMA
+    // CLOCKIFY STATUS UPDATE 
     // ====================================================================
     if (shouldMarkAsSent) {
       console.log("=== POČETAK CLOCKIFY API POZIVA ===");
 
-      const allHeaders: Record<string, string> = {};
-      request.headers.forEach((value, key) => { allHeaders[key] = value; });
-      console.log("1. ZAGLAVLJA:", JSON.stringify(allHeaders, null, 2));
-
+      // ISPRAVLJENO PARSIRANJE TOKENA: Hvata JWT sa ili bez "Bearer " prefiksa
       let clockifyToken = request.headers.get('clockify-signature') || request.headers.get('x-addon-token');
+      
       if (!clockifyToken) {
         const authHeader = request.headers.get('authorization');
-        if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-          clockifyToken = authHeader.substring(7);
+        if (authHeader) {
+          clockifyToken = authHeader.toLowerCase().startsWith('bearer ') 
+            ? authHeader.substring(7).trim() 
+            : authHeader.trim();
         }
       }
 
-      console.log("2. PRONAĐEN TOKEN:", clockifyToken ? "DA" : "NE");
+      console.log("1. PRONAĐEN TOKEN:", clockifyToken ? "DA" : "NE");
 
       if (clockifyToken) {
         try {
           const payloadBase64 = clockifyToken.split('.')[1];
           const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-          console.log("3. TOKEN PAYLOAD:", JSON.stringify(payload, null, 2));
           
           const workspaceId = payload.workspaceId || payload.workspace_id || dataObj.workspaceId;
           const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
           const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
           const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`;
           
-          console.log("4. GAĐAMO URL:", apiUrl);
+          console.log("2. GAĐAMO URL:", apiUrl);
 
           const getInvRes = await fetch(apiUrl, {
             headers: {
@@ -171,7 +170,7 @@ export async function POST(request: NextRequest) {
             }
           });
 
-          console.log("5. GET STATUS:", getInvRes.status);
+          console.log("3. GET STATUS:", getInvRes.status);
 
           if (getInvRes.ok) {
             const clockifyInvoiceData = await getInvRes.json();
@@ -198,20 +197,22 @@ export async function POST(request: NextRequest) {
               body: JSON.stringify(updatePayload)
             });
 
-            console.log("6. PUT STATUS:", putRes.status);
+            console.log("4. PUT STATUS:", putRes.status);
             if (!putRes.ok) {
                 const putErr = await putRes.text();
-                console.error("7. PUT GREŠKA:", putErr);
+                console.error("5. PUT GREŠKA:", putErr);
+            } else {
+                console.log("5. ✅ USPEH: Status fakture promenjen u SENT!");
             }
           } else {
              const getErr = await getInvRes.text();
-             console.error("7. GET GREŠKA:", getErr);
+             console.error("5. GET GREŠKA:", getErr);
           }
         } catch (error: any) {
-          console.error("8. CATCH ERROR:", error.message);
+          console.error("6. CATCH ERROR:", error.message);
         }
       } else {
-          console.error("9. TOKEN NIJE PRONAĐEN NI U JEDNOM ZAGLAVLJU!");
+          console.error("6. TOKEN NIJE PRONAĐEN U ZAGLAVLJU!");
       }
       console.log("=== KRAJ CLOCKIFY API POZIVA ===");
     }
