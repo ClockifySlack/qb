@@ -13,17 +13,18 @@ export default function Settings() {
   const [applyTax, setApplyTax] = useState(true);
   const [isUpdatingTax, setIsUpdatingTax] = useState(false);
 
-  // NOVO: State za status fakture
   const [markAsSent, setMarkAsSent] = useState(true);
   const [isUpdatingSent, setIsUpdatingSent] = useState(false);
+
+  // NOVO: State za paginaciju
+  const [currentPage, setCurrentPage] = useState(1);
+  const invoicesPerPage = 20;
 
   useEffect(() => {
     fetch('/api/auth/status')
       .then(res => res.json())
       .then(data => {
-        if (data.isConnected) {
-          setIsConnected(true);
-        }
+        if (data.isConnected) setIsConnected(true);
         setIsCheckingStatus(false);
       })
       .catch(() => setIsCheckingStatus(false));
@@ -39,7 +40,6 @@ export default function Settings() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
-  // API putanja promenjena na /preferences
   useEffect(() => {
     if (isConnected) {
       fetch('/api/settings/preferences')
@@ -65,13 +65,6 @@ export default function Settings() {
           setIsLoadingInvoices(false);
           return;
       }
-      
-      // DODATO: Čim imamo token, čuvamo ga u bazu u pozadini!
-      fetch('/api/settings/save-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: authToken })
-      }).catch(console.error);
 
       fetch(`/api/clockify/invoices?auth_token=${authToken}`)
         .then(async (res) => {
@@ -88,20 +81,14 @@ export default function Settings() {
             throw new Error('API did not return an array.');
           }
         })
-        .catch(err => {
-          setInvoiceError(err.message);
-        })
-        .finally(() => {
-          setIsLoadingInvoices(false);
-        });
+        .catch(err => setInvoiceError(err.message))
+        .finally(() => setIsLoadingInvoices(false));
     }
   }, [isConnected]);
 
   const openAuthPopup = () => {
-    const width = 600;
-    const height = 700;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
+    const width = 600, height = 700;
+    const left = window.screen.width / 2 - width / 2, top = window.screen.height / 2 - height / 2;
     window.open('/api/auth/qb', 'QuickBooksAuthorization', `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`);
   };
 
@@ -109,48 +96,44 @@ export default function Settings() {
     const newValue = !applyTax;
     setApplyTax(newValue);
     setIsUpdatingTax(true);
-    
     try {
       await fetch('/api/settings/preferences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ applyTax: newValue })
       });
-    } catch (err) {
-      console.error(err);
-      setApplyTax(!newValue);
-    } finally {
-      setIsUpdatingTax(false);
-    }
+    } catch (err) { setApplyTax(!newValue); } 
+    finally { setIsUpdatingTax(false); }
   };
 
-  // NOVO: Funkcija za menjanje status postavke
   const handleSentToggle = async () => {
     const newValue = !markAsSent;
     setMarkAsSent(newValue);
     setIsUpdatingSent(true);
-    
     try {
       await fetch('/api/settings/preferences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ markAsSent: newValue })
       });
-    } catch (err) {
-      console.error(err);
-      setMarkAsSent(!newValue);
-    } finally {
-      setIsUpdatingSent(false);
-    }
+    } catch (err) { setMarkAsSent(!newValue); } 
+    finally { setIsUpdatingSent(false); }
   };
 
-  const handleSyncInvoice = async (invoiceId: string, invoiceNumber: string, amount: number) => {
+  const handleSyncInvoice = async (invoiceId: string, invoiceNumber: string, amount: number, clientName: string) => {
     setSyncStatus(prev => ({ ...prev, [invoiceId]: 'loading' }));
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const authToken = urlParams.get('auth_token') || "";
+
     try {
       const response = await fetch('/api/sync/invoice', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId, invoiceNumber, amount, realmId: "9341457104211536" })
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-addon-token': authToken 
+        },
+        body: JSON.stringify({ invoiceId, invoiceNumber, amount, clientName, realmId: "9341457104211536" })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to sync');
@@ -160,14 +143,20 @@ export default function Settings() {
     }
   };
 
+  // NOVO: Logika za računanje paginacije
+  const indexOfLastInvoice = currentPage * invoicesPerPage;
+  const indexOfFirstInvoice = indexOfLastInvoice - invoicesPerPage;
+  const currentInvoices = invoices.slice(indexOfFirstInvoice, indexOfLastInvoice);
+  const totalPages = Math.ceil(invoices.length / invoicesPerPage);
+
+  const nextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  const prevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
+
   return (
     <div className="bg-white min-h-screen font-sans antialiased text-slate-800">
       <div className="max-w-3xl mx-auto px-4 py-8">
-        
         <div className="flex items-center space-x-2 text-xs text-slate-400 mb-2">
-          <span>Add-ons</span>
-          <span>/</span>
-          <span className="text-slate-600 font-medium">QuickBooks Payroll Bridge</span>
+          <span>Add-ons</span><span>/</span><span className="text-slate-600 font-medium">QuickBooks Payroll Bridge</span>
         </div>
         <h1 className="text-2xl font-bold text-slate-900 mb-6">Integration Settings</h1>
 
@@ -181,27 +170,15 @@ export default function Settings() {
                 {isCheckingStatus ? 'Loading status...' : isConnected ? 'QuickBooks Connected' : 'QuickBooks Account Authorization'}
               </h3>
               <p className="text-sm text-slate-500 mt-0.5">
-                {isConnected 
-                  ? 'Your Clockify workspace is successfully linked with QuickBooks Payroll Bridge.' 
-                  : 'Grant this add-on access to read Clockify invoices and push data directly into your QuickBooks Sandbox organization accounts.'}
+                {isConnected ? 'Your Clockify workspace is successfully linked with QuickBooks Payroll Bridge.' : 'Grant this add-on access to read Clockify invoices and push data directly into your QuickBooks Sandbox organization accounts.'}
               </p>
             </div>
           </div>
-          
           <div className="flex-shrink-0">
-            {isCheckingStatus ? (
-              <span className="inline-flex items-center text-sm text-slate-400 animate-pulse">Checking...</span>
-            ) : isConnected ? (
-              <span className="inline-flex items-center bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 rounded-lg">
-                ✓ Connected
-              </span>
+            {isCheckingStatus ? (<span className="inline-flex items-center text-sm text-slate-400 animate-pulse">Checking...</span>) : isConnected ? (
+              <span className="inline-flex items-center bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 rounded-lg">✓ Connected</span>
             ) : (
-              <button
-                onClick={openAuthPopup}
-                className="inline-flex items-center justify-center bg-[#2ca01c] hover:bg-[#1e6b13] text-white font-medium text-sm py-2.5 px-5 rounded-lg transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500"
-              >
-                Connect QuickBooks
-              </button>
+              <button onClick={openAuthPopup} className="inline-flex items-center justify-center bg-[#2ca01c] hover:bg-[#1e6b13] text-white font-medium text-sm py-2.5 px-5 rounded-lg transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500">Connect QuickBooks</button>
             )}
           </div>
         </div>
@@ -213,31 +190,18 @@ export default function Settings() {
                 <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex items-center justify-between hover:border-slate-300 transition-colors">
                   <div className="pr-4">
                     <h3 className="font-semibold text-slate-900">QuickBooks Automatic Tax</h3>
-                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-                      When sending an invoice, allow QuickBooks to automatically calculate and apply the appropriate tax rate for the client.
-                    </p>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">When sending an invoice, allow QuickBooks to automatically calculate and apply the appropriate tax rate.</p>
                   </div>
-                  <button
-                    onClick={handleTaxToggle}
-                    disabled={isUpdatingTax}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${applyTax ? 'bg-emerald-500' : 'bg-slate-300'} ${isUpdatingTax ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
+                  <button onClick={handleTaxToggle} disabled={isUpdatingTax} className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${applyTax ? 'bg-emerald-500' : 'bg-slate-300'} ${isUpdatingTax ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${applyTax ? 'translate-x-5' : 'translate-x-0'}`} />
                   </button>
                 </div>
-
                 <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex items-center justify-between hover:border-slate-300 transition-colors">
                   <div className="pr-4">
                     <h3 className="font-semibold text-slate-900">Mark as Sent in Clockify</h3>
-                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-                      Automatically change the invoice status to "SENT" in Clockify after successfully syncing it to QuickBooks.
-                    </p>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">Automatically change the invoice status to "SENT" in Clockify after successfully syncing it.</p>
                   </div>
-                  <button
-                    onClick={handleSentToggle}
-                    disabled={isUpdatingSent}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${markAsSent ? 'bg-emerald-500' : 'bg-slate-300'} ${isUpdatingSent ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
+                  <button onClick={handleSentToggle} disabled={isUpdatingSent} className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${markAsSent ? 'bg-emerald-500' : 'bg-slate-300'} ${isUpdatingSent ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${markAsSent ? 'translate-x-5' : 'translate-x-0'}`} />
                   </button>
                 </div>
@@ -245,9 +209,6 @@ export default function Settings() {
 
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-slate-900">Recent Invoices</h2>
-                <span className="text-xs font-medium bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full border border-emerald-100">
-                  Live Data
-                </span>
               </div>
               
               <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -262,56 +223,27 @@ export default function Settings() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {isLoadingInvoices ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm animate-pulse">
-                          Fetching invoices from Clockify...
-                        </td>
-                      </tr>
+                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm animate-pulse">Fetching invoices from Clockify...</td></tr>
                     ) : invoiceError ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-8 text-center bg-rose-50 border-t border-rose-100 whitespace-normal">
-                          <span className="text-rose-600 font-semibold text-sm block mb-1">An error occurred:</span>
-                          <span className="text-rose-500 text-xs break-words">{invoiceError}</span>
-                        </td>
-                      </tr>
+                      <tr><td colSpan={4} className="px-6 py-8 text-center bg-rose-50"><span className="text-rose-600 block">{invoiceError}</span></td></tr>
                     ) : invoices.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">
-                          No invoices found in this workspace.
-                        </td>
-                      </tr>
+                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">No invoices found.</td></tr>
                     ) : (
-                      invoices.map((inv) => {
+                      // NOVO: Mapiramo samo currentInvoices umesto celog niza
+                      currentInvoices.map((inv) => {
                         const status = syncStatus[inv.id] || 'idle';
                         return (
-                          <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-6 py-4 font-medium text-slate-900">{inv.number}</td>
+                          <tr key={inv.id} className="hover:bg-slate-50/50">
+                            <td className="px-6 py-4 font-medium">{inv.number}</td>
                             <td className="px-6 py-4 text-slate-600">{inv.client}</td>
-                            <td className="px-6 py-4 font-medium text-slate-900">${Number(inv.amount).toFixed(2)}</td>
+                            <td className="px-6 py-4 font-medium">${Number(inv.amount).toFixed(2)}</td>
                             <td className="px-6 py-4 text-right">
                               {status === 'idle' && (
-                                <button 
-                                  onClick={() => handleSyncInvoice(inv.id, inv.number, inv.amount)}
-                                  className="text-xs font-medium bg-white text-slate-700 hover:text-cyan-600 border border-slate-200 hover:border-cyan-300 px-3 py-1.5 rounded-lg transition-all shadow-sm"
-                                >
-                                  Sync to QB
-                                </button>
+                                <button onClick={() => handleSyncInvoice(inv.id, inv.number, inv.amount, inv.client)} className="text-xs font-medium bg-white text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg hover:border-cyan-300">Sync to QB</button>
                               )}
-                              {status === 'loading' && (
-                                <span className="text-xs font-medium text-slate-400 flex items-center justify-end space-x-1 animate-pulse">
-                                  <span>Syncing...</span>
-                                </span>
-                              )}
-                              {status === 'success' && (
-                                <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
-                                  ✓ Synced
-                                </span>
-                              )}
-                              {status === 'error' && (
-                                <span className="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">
-                                  ✕ Failed
-                                </span>
-                              )}
+                              {status === 'loading' && (<span className="text-xs font-medium text-slate-400 animate-pulse">Syncing...</span>)}
+                              {status === 'success' && (<span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">✓ Synced</span>)}
+                              {status === 'error' && (<span className="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">✕ Failed</span>)}
                             </td>
                           </tr>
                         );
@@ -319,19 +251,39 @@ export default function Settings() {
                     )}
                   </tbody>
                 </table>
+                
+                {/* NOVO: Paginacija UI */}
+                {invoices.length > invoicesPerPage && (
+                  <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-slate-500">
+                        Showing <span className="font-semibold text-slate-700">{indexOfFirstInvoice + 1}</span> to <span className="font-semibold text-slate-700">{Math.min(indexOfLastInvoice, invoices.length)}</span> of <span className="font-semibold text-slate-700">{invoices.length}</span> results
+                      </p>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={prevPage}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        onClick={nextPage}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           ) : (
-            <div className="bg-slate-50 border border-slate-200 border-dashed rounded-xl p-10 text-center flex flex-col items-center justify-center">
-              <span className="text-4xl mb-4 grayscale opacity-50">🔒</span>
-              <h3 className="text-sm font-bold text-slate-700 mb-2">Invoices Locked</h3>
-              <p className="text-xs text-slate-500 max-w-sm">
-                Please connect your QuickBooks account using the button above to unlock invoice synchronization.
-              </p>
-            </div>
+            <div className="bg-slate-50 border p-10 text-center rounded-xl"><span className="text-4xl opacity-50">🔒</span><p className="mt-2 text-sm text-slate-500">Please connect your QuickBooks account.</p></div>
           )}
         </div>
-
       </div>
     </div>
   );
