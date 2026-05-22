@@ -10,7 +10,7 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const realmId = "9341457104211536";
+    const realmId = "9341457104211536"; // Zakucan za MVP
 
     const { data: connection } = await supabase
       .from('qb_connections')
@@ -39,11 +39,7 @@ export async function POST(request: NextRequest) {
 
     await supabase
       .from('qb_connections')
-      .update({
-        access_token: null,
-        refresh_token: null,
-        expires_at: null,
-      })
+      .delete()
       .eq('realm_id', realmId);
 
     return NextResponse.json({ success: true });
