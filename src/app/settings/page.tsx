@@ -240,4 +240,109 @@ export default function Settings() {
               </div>
 
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-slate-
+                <h2 className="text-lg font-bold text-slate-900">Recent Invoices</h2>
+              </div>
+              
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-left text-sm whitespace-nowrap">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-4 font-medium">Invoice No.</th>
+                      <th className="px-6 py-4 font-medium">Client</th>
+                      <th className="px-6 py-4 font-medium">Amount</th>
+                      <th className="px-6 py-4 font-medium text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {isLoadingInvoices ? (
+                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm animate-pulse">Fetching invoices from Clockify...</td></tr>
+                    ) : invoiceError ? (
+                      <tr><td colSpan={4} className="px-6 py-8 text-center bg-rose-50"><span className="text-rose-600 block">{invoiceError}</span></td></tr>
+                    ) : invoices.length === 0 ? (
+                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">No invoices found.</td></tr>
+                    ) : (
+                      currentInvoices.map((inv) => {
+                        const status = syncStatus[inv.id] || 'idle';
+                        return (
+                          <tr key={inv.id} className="hover:bg-slate-50/50">
+                            <td className="px-6 py-4 font-medium">{inv.number}</td>
+                            <td className="px-6 py-4 text-slate-600">{inv.client}</td>
+                            <td className="px-6 py-4 font-medium">${Number(inv.amount).toFixed(2)}</td>
+                            <td className="px-6 py-4 text-right">
+                              {status === 'idle' && (
+                                <button onClick={() => handleSyncInvoice(inv.id, inv.number, inv.amount, inv.client)} className="text-xs font-medium bg-white text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg hover:border-cyan-300">Sync to QB</button>
+                              )}
+                              {status === 'loading' && (<span className="text-xs font-medium text-slate-400 animate-pulse">Syncing...</span>)}
+                              {status === 'success' && (<span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">✓ Synced</span>)}
+                              {status === 'error' && (<span className="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">✕ Failed</span>)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                
+                {invoices.length > invoicesPerPage && (
+                  <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-slate-500">
+                        Showing <span className="font-semibold text-slate-700">{indexOfFirstInvoice + 1}</span> to <span className="font-semibold text-slate-700">{Math.min(indexOfLastInvoice, invoices.length)}</span> of <span className="font-semibold text-slate-700">{invoices.length}</span> results
+                      </p>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={prevPage}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        onClick={nextPage}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="bg-slate-50 border p-10 text-center rounded-xl"><span className="text-4xl opacity-50">🔒</span><p className="mt-2 text-sm text-slate-500">Please connect your QuickBooks account.</p></div>
+          )}
+        </div>
+      </div>
+
+      {/* NOVO: Custom Modal za Disconnect potvrdu */}
+      {showDisconnectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Disconnect QuickBooks?</h3>
+            <p className="text-sm text-slate-500 mb-6">
+              Are you sure you want to disconnect? This will revoke access and you will need to reconnect to sync invoices in the future.
+            </p>
+            <div className="flex space-x-3 justify-end">
+              <button
+                onClick={() => setShowDisconnectModal(false)}
+                disabled={isDisconnecting}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDisconnect}
+                disabled={isDisconnecting}
+                className="px-4 py-2 text-sm font-medium text-white bg-rose-600 border border-transparent rounded-lg hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center"
+              >
+                {isDisconnecting ? 'Disconnecting...' : 'Yes, Disconnect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
