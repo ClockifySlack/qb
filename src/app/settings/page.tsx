@@ -169,7 +169,6 @@ export default function Settings() {
           <div className="flex-shrink-0">
             {isCheckingStatus ? (<span className="inline-flex items-center text-sm text-slate-400 animate-pulse">Checking...</span>) : isConnected ? (
               
-              /* --- AŽURIRANI DEO: Intuit Standard Status & Button --- */
               <div className="flex items-center space-x-5">
                 <div className="flex items-center text-sm font-medium text-[#2CA01C]">
                   <svg className="w-5 h-5 mr-1.5 fill-current" viewBox="0 0 20 20">
@@ -185,15 +184,21 @@ export default function Settings() {
                   Disconnect
                 </button>
               </div>
-              /* ----------------------------------------------------- */
 
             ) : (
+              /* --- AŽURIRANI DEO: Korišćenje zvaničnog Intuit SVG aseta --- */
               <button 
                 onClick={openAuthPopup} 
-                className="inline-flex items-center justify-center bg-[#2CA01C] hover:bg-[#1D8011] text-white font-semibold text-sm py-2.5 px-6 rounded-full transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2CA01C]"
+                className="focus:outline-none transition-transform hover:scale-105"
+                aria-label="Connect to QuickBooks"
               >
-                Connect to QuickBooks
+                <img 
+                  src="/C2QB_green_btn_med_default.svg" 
+                  alt="Connect to QuickBooks" 
+                  className="h-10 w-auto" 
+                />
               </button>
+              /* ----------------------------------------------------------- */
             )}
           </div>
         </div>
