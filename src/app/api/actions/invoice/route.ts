@@ -33,6 +33,15 @@ export async function POST(request: NextRequest) {
        }
     }
 
+    // DODATO: Provera da li je faktura već poslata, kako bismo okinuli Toast notifikaciju u Clockify-ju.
+    const invoiceStatus = dataObj.status;
+    if (invoiceStatus === 'SENT') {
+      return NextResponse.json(
+        { message: "Already synced! This invoice is already marked as SENT." },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
     const invoiceId = dataObj.id;
     const invoiceNumber = dataObj.number || "INV-ACTION";
     const amountInCents = dataObj.total || dataObj.amount || dataObj.balance || 0;
@@ -159,7 +168,6 @@ export async function POST(request: NextRequest) {
           const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
           const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
           
-          // PRAVILAN PATCH ENDPOINT IZ DOKUMENTACIJE
           const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}/status`;
           
           console.log("2. GAĐAMO URL:", apiUrl);
@@ -169,7 +177,7 @@ export async function POST(request: NextRequest) {
           };
 
           const patchRes = await fetch(apiUrl, {
-            method: 'PATCH', // MENJANO IZ PUT U PATCH
+            method: 'PATCH',
             headers: {
               'X-Addon-Token': clockifyToken,
               'Content-Type': 'application/json',
