@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
     const realmId = searchParams.get('realmId');
 
     if (!code || !realmId) {
+      console.error("DEBUG CALLBACK: Fali code ili realmId u URL-u.");
       return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
     }
 
@@ -35,6 +36,8 @@ export async function GET(request: NextRequest) {
     });
 
     if (!tokenResponse.ok) {
+      const errText = await tokenResponse.text();
+      console.error("DEBUG CALLBACK: Intuit API je odbio kod! Razlog:", errText);
       return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
     }
 
@@ -52,12 +55,14 @@ export async function GET(request: NextRequest) {
       }, { onConflict: 'realm_id' });
 
     if (dbError) {
+      console.error("DEBUG CALLBACK: Supabase upisivanje puklo:", dbError);
       return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
     }
 
     return NextResponse.redirect(new URL('/dashboard?status=success', request.url));
 
   } catch (error: any) {
+    console.error("DEBUG CALLBACK: Uhvaćen kritičan error:", error.message);
     return NextResponse.redirect(new URL('/dashboard?status=error', request.url));
   }
 }
