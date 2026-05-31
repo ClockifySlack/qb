@@ -5,12 +5,9 @@ import { useEffect, useState } from 'react';
 export default function Settings() {
   const [isConnected, setIsConnected] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
-  const [invoices, setInvoices] = useState<any[]>([]);
+  const [syncedInvoices, setSyncedInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
-  
-  // DODATO: Novi status 'already_synced' u tipizaciju
-  const [syncStatus, setSyncStatus] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error' | 'already_synced'>>({});
   
   const [applyTax, setApplyTax] = useState(true);
   const [isUpdatingTax, setIsUpdatingTax] = useState(false);
@@ -74,18 +71,9 @@ export default function Settings() {
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'Unknown server error');
           if (Array.isArray(data)) {
-            setInvoices(data);
-            
-            // AZURIRANO: Logika za prepoznavanje već poslatih faktura
-            const initialSyncStatus: Record<string, 'idle' | 'loading' | 'success' | 'error' | 'already_synced'> = {};
-            data.forEach((inv) => {
-              // Ako tvoj backend vraća isSynced: true ili ako je status fakture u Clockify-ju 'SENT'
-              if (inv.isSynced || inv.status === 'SENT') {
-                initialSyncStatus[inv.id] = 'already_synced';
-              }
-            });
-            setSyncStatus(initialSyncStatus);
-            
+            // Filtriramo listu da prikazuje SAMO poslate fakture
+            const filteredInvoices = data.filter(inv => inv.isSynced || inv.status === 'SENT');
+            setSyncedInvoices(filteredInvoices);
           } else {
             throw new Error('API did not return an array.');
           }
@@ -111,7 +99,7 @@ export default function Settings() {
       const response = await fetch('/api/auth/disconnect', { method: 'POST' });
       if (response.ok) {
         setIsConnected(false);
-        setInvoices([]);
+        setSyncedInvoices([]);
         setShowDisconnectModal(false);
       }
     } catch (err) {
@@ -149,33 +137,10 @@ export default function Settings() {
     finally { setIsUpdatingSent(false); }
   };
 
-  const handleSyncInvoice = async (invoiceId: string, invoiceNumber: string, amount: number, clientName: string) => {
-    setSyncStatus(prev => ({ ...prev, [invoiceId]: 'loading' }));
-    
-    const urlParams = new URLSearchParams(window.location.search);
-    const authToken = urlParams.get('auth_token') || "";
-
-    try {
-      const response = await fetch('/api/sync/invoice', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-addon-token': authToken 
-        },
-        body: JSON.stringify({ invoiceId, invoiceNumber, amount, clientName, realmId: "9341457104211536" })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to sync');
-      setSyncStatus(prev => ({ ...prev, [invoiceId]: 'success' }));
-    } catch (error) {
-      setSyncStatus(prev => ({ ...prev, [invoiceId]: 'error' }));
-    }
-  };
-
   const indexOfLastInvoice = currentPage * invoicesPerPage;
   const indexOfFirstInvoice = indexOfLastInvoice - invoicesPerPage;
-  const currentInvoices = invoices.slice(indexOfFirstInvoice, indexOfLastInvoice);
-  const totalPages = Math.ceil(invoices.length / invoicesPerPage);
+  const currentInvoices = syncedInvoices.slice(indexOfFirstInvoice, indexOfLastInvoice);
+  const totalPages = Math.ceil(syncedInvoices.length / invoicesPerPage);
 
   const nextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
   const prevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
@@ -250,7 +215,7 @@ export default function Settings() {
               </div>
 
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-[#393A3D]">Recent Invoices</h2>
+                <h2 className="text-lg font-bold text-[#393A3D]">Sync History</h2>
               </div>
               
               <div className="bg-white border border-[#D4D7DC] rounded-xl overflow-hidden shadow-sm">
@@ -260,50 +225,38 @@ export default function Settings() {
                       <th className="px-6 py-4 font-semibold">Invoice No.</th>
                       <th className="px-6 py-4 font-semibold">Client</th>
                       <th className="px-6 py-4 font-semibold">Amount</th>
-                      <th className="px-6 py-4 font-semibold text-right">Action</th>
+                      <th className="px-6 py-4 font-semibold text-right">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#D4D7DC]">
                     {isLoadingInvoices ? (
-                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm animate-pulse">Fetching invoices from Clockify...</td></tr>
+                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm animate-pulse">Fetching history from Clockify...</td></tr>
                     ) : invoiceError ? (
                       <tr><td colSpan={4} className="px-6 py-8 text-center bg-rose-50"><span className="text-rose-600 block">{invoiceError}</span></td></tr>
-                    ) : invoices.length === 0 ? (
-                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">No invoices found.</td></tr>
+                    ) : syncedInvoices.length === 0 ? (
+                      <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">No synced invoices found. Send an invoice from Clockify to see it here.</td></tr>
                     ) : (
-                      currentInvoices.map((inv) => {
-                        const status = syncStatus[inv.id] || 'idle';
-                        return (
-                          <tr key={inv.id} className="hover:bg-slate-50/50">
-                            <td className="px-6 py-4 font-medium">{inv.number}</td>
-                            <td className="px-6 py-4 text-slate-600">{inv.client}</td>
-                            <td className="px-6 py-4 font-medium">${Number(inv.amount).toFixed(2)}</td>
-                            <td className="px-6 py-4 text-right">
-                              {status === 'idle' && (
-                                <button onClick={() => handleSyncInvoice(inv.id, inv.number, inv.amount, inv.client)} className="text-xs font-semibold bg-white text-[#393A3D] border border-[#D4D7DC] px-4 py-1.5 rounded-full hover:bg-[#F4F5F8] transition-colors">Sync to QB</button>
-                              )}
-                              {status === 'loading' && (<span className="text-xs font-medium text-slate-400 animate-pulse">Syncing...</span>)}
-                              {status === 'success' && (<span className="text-xs font-medium text-[#2CA01C] bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">✓ Synced</span>)}
-                              {status === 'error' && (<span className="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-100">✕ Failed</span>)}
-                              {/* DODATO: Prikaz za fakture koje su već odranije poslate */}
-                              {status === 'already_synced' && (
-                                <span className="inline-block text-xs font-semibold text-slate-500 bg-[#F4F5F8] px-4 py-1.5 rounded-full border border-[#D4D7DC] opacity-80 cursor-not-allowed">
-                                  Already Synced
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
+                      currentInvoices.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-slate-50/50">
+                          <td className="px-6 py-4 font-medium">{inv.number}</td>
+                          <td className="px-6 py-4 text-slate-600">{inv.client}</td>
+                          <td className="px-6 py-4 font-medium">${Number(inv.amount).toFixed(2)}</td>
+                          <td className="px-6 py-4 text-right">
+                            <span className="inline-flex items-center text-xs font-semibold text-[#2CA01C] bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
+                              ✓ In QuickBooks
+                            </span>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
                 
-                {invoices.length > invoicesPerPage && (
+                {syncedInvoices.length > invoicesPerPage && (
                   <div className="bg-slate-50 px-6 py-3 border-t border-[#D4D7DC] flex items-center justify-between">
                     <div>
                       <p className="text-xs text-slate-500">
-                        Showing <span className="font-semibold text-[#393A3D]">{indexOfFirstInvoice + 1}</span> to <span className="font-semibold text-[#393A3D]">{Math.min(indexOfLastInvoice, invoices.length)}</span> of <span className="font-semibold text-[#393A3D]">{invoices.length}</span> results
+                        Showing <span className="font-semibold text-[#393A3D]">{indexOfFirstInvoice + 1}</span> to <span className="font-semibold text-[#393A3D]">{Math.min(indexOfLastInvoice, syncedInvoices.length)}</span> of <span className="font-semibold text-[#393A3D]">{syncedInvoices.length}</span> results
                       </p>
                     </div>
                     <div className="flex space-x-2">
