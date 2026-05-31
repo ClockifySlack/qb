@@ -8,7 +8,9 @@ export default function Settings() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
-  const [syncStatus, setSyncStatus] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error'>>({});
+  
+  // DODATO: Novi status 'already_synced' u tipizaciju
+  const [syncStatus, setSyncStatus] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error' | 'already_synced'>>({});
   
   const [applyTax, setApplyTax] = useState(true);
   const [isUpdatingTax, setIsUpdatingTax] = useState(false);
@@ -73,11 +75,17 @@ export default function Settings() {
           if (!res.ok) throw new Error(data.error || 'Unknown server error');
           if (Array.isArray(data)) {
             setInvoices(data);
-            const initialSyncStatus: Record<string, 'idle' | 'loading' | 'success' | 'error'> = {};
+            
+            // AZURIRANO: Logika za prepoznavanje već poslatih faktura
+            const initialSyncStatus: Record<string, 'idle' | 'loading' | 'success' | 'error' | 'already_synced'> = {};
             data.forEach((inv) => {
-              if (inv.isSynced) initialSyncStatus[inv.id] = 'success';
+              // Ako tvoj backend vraća isSynced: true ili ako je status fakture u Clockify-ju 'SENT'
+              if (inv.isSynced || inv.status === 'SENT') {
+                initialSyncStatus[inv.id] = 'already_synced';
+              }
             });
             setSyncStatus(initialSyncStatus);
+            
           } else {
             throw new Error('API did not return an array.');
           }
@@ -207,7 +215,6 @@ export default function Settings() {
                 </button>
               </div>
             ) : (
-              // Zvanično QB "Connect" dugme
               <button 
                 onClick={openAuthPopup} 
                 className="inline-flex items-center justify-center bg-[#2CA01C] hover:bg-[#1D8011] text-white font-semibold text-sm py-2.5 px-6 rounded-full transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2CA01C]"
@@ -273,12 +280,17 @@ export default function Settings() {
                             <td className="px-6 py-4 font-medium">${Number(inv.amount).toFixed(2)}</td>
                             <td className="px-6 py-4 text-right">
                               {status === 'idle' && (
-                                // QB Standard Secondary Button
                                 <button onClick={() => handleSyncInvoice(inv.id, inv.number, inv.amount, inv.client)} className="text-xs font-semibold bg-white text-[#393A3D] border border-[#D4D7DC] px-4 py-1.5 rounded-full hover:bg-[#F4F5F8] transition-colors">Sync to QB</button>
                               )}
                               {status === 'loading' && (<span className="text-xs font-medium text-slate-400 animate-pulse">Syncing...</span>)}
                               {status === 'success' && (<span className="text-xs font-medium text-[#2CA01C] bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">✓ Synced</span>)}
                               {status === 'error' && (<span className="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-100">✕ Failed</span>)}
+                              {/* DODATO: Prikaz za fakture koje su već odranije poslate */}
+                              {status === 'already_synced' && (
+                                <span className="inline-block text-xs font-semibold text-slate-500 bg-[#F4F5F8] px-4 py-1.5 rounded-full border border-[#D4D7DC] opacity-80 cursor-not-allowed">
+                                  Already Synced
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -331,7 +343,6 @@ export default function Settings() {
               <button
                 onClick={() => setShowDisconnectModal(false)}
                 disabled={isDisconnecting}
-                // QB Standard Secondary Button
                 className="px-5 py-2 text-sm font-semibold text-[#393A3D] bg-white border border-[#D4D7DC] rounded-full hover:bg-[#F4F5F8] transition-colors disabled:opacity-50"
               >
                 Cancel
@@ -339,7 +350,6 @@ export default function Settings() {
               <button
                 onClick={confirmDisconnect}
                 disabled={isDisconnecting}
-                // Intuit Design System obično izbegava agresivnu crvenu za akcije osim u kritičnim brisanjima naloga, ali ovo je standardan stil
                 className="px-5 py-2 text-sm font-semibold text-white bg-rose-600 border border-transparent rounded-full hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center"
               >
                 {isDisconnecting ? 'Disconnecting...' : 'Yes, Disconnect'}
