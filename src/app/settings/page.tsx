@@ -146,7 +146,6 @@ export default function Settings() {
 
   return (
     <div className="bg-white min-h-screen font-sans antialiased text-[#393A3D] relative">
-      {/* PROŠIREN KONTEJNER: max-w-3xl promenjeno u max-w-4xl */}
       <div className="max-w-4xl mx-auto px-6 py-8">
         <div className="flex items-center space-x-2 text-xs text-slate-400 mb-2">
           <span>Add-ons</span><span>/</span><span className="text-[#393A3D] font-medium">QuickBooks Payroll Bridge</span>
@@ -154,10 +153,10 @@ export default function Settings() {
         <h1 className="text-2xl font-bold text-[#393A3D] mb-6">Integration Settings</h1>
 
         <div className="bg-slate-50 border border-[#D4D7DC] rounded-xl p-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
-          {/* DODATO flex-1 i pr-8 da tekst dobije više prostora */}
           <div className="flex items-start space-x-4 flex-1 pr-8">
-            <div className={`p-2.5 rounded-lg font-bold text-lg hidden sm:block ${isConnected ? 'bg-emerald-100 text-[#2CA01C]' : 'bg-amber-100 text-amber-700'}`}>
-              QB
+            {/* ZAMENJENO: Umesto onog QB teksta, sada se ovde prikazuje tvoj pravi logo */}
+            <div className="hidden sm:flex flex-shrink-0 items-center justify-center p-2 border border-[#D4D7DC] rounded-lg bg-white w-14 h-14 shadow-sm">
+              <img src="/qb-logo.png" alt="Add-on Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <h3 className="font-semibold text-[#393A3D]">
@@ -194,7 +193,7 @@ export default function Settings() {
                 aria-label="Connect to QuickBooks"
               >
                 <img 
-                  src="/C2QB_green_btn_med_default.svg" 
+                  src="/C2QB_green_btn_short_default.svg" 
                   alt="Connect to QuickBooks" 
                   className="h-10 w-auto" 
                 />
