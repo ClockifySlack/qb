@@ -5,6 +5,7 @@
   "description": "Automatically send and synchronize invoices directly to your QuickBooks account.",
   "baseUrl": "https://qb-opal.vercel.app",
   "minimalSubscriptionPlan": "STANDARD",
+  "iconPath": "/qb-logo.png",
   "scopes": [
     "WORKSPACE_READ",
     "INVOICE_READ",
@@ -26,13 +27,15 @@
       "type": "sidebar",
       "label": "QuickBooks Bridge",
       "path": "/settings",
-      "accessLevel": "ADMINS"
+      "accessLevel": "ADMINS",
+      "iconPath": "/qb-logo.png"
     },
     {
       "type": "invoices.action",
       "label": "Send to QuickBooks",
       "path": "/api/actions/invoice",
-      "accessLevel": "ADMINS"
+      "accessLevel": "ADMINS",
+      "iconPath": "/qb-logo.png"
     }
   ]
 }
