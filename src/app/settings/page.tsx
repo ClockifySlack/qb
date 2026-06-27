@@ -193,7 +193,7 @@ export default function Settings() {
                 aria-label="Connect to QuickBooks"
               >
                 <img 
-                  src="/C2QB_green_btn_short_default.svg" 
+                  src="/C2QB_green_btn_med_default.svg" 
                   alt="Connect to QuickBooks" 
                   className="h-10 w-auto" 
                 />
