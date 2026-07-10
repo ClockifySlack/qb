@@ -3,7 +3,7 @@
   "key": "clockify-quickbooks-bridge",
   "name": "QuickBooks Payroll Bridge",
   "description": "Automatically send and synchronize invoices directly to your QuickBooks account.",
-  "baseUrl": "https://qb-opal.vercel.app",
+  "baseUrl": "https://app.automaticon.online",
   "minimalSubscriptionPlan": "STANDARD",
   "iconPath": "/qb-logo.png",
   "scopes": [
