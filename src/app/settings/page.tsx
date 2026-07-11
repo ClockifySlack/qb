@@ -295,6 +295,20 @@ export default function Settings() {
             <div className="bg-slate-50 border border-[#D4D7DC] p-10 text-center rounded-xl"><span className="text-4xl opacity-50">🔒</span><p className="mt-2 text-sm text-[#393A3D]">Please connect your QuickBooks account.</p></div>
           )}
         </div>
+
+        {/* Support Contact Link Ubačen Ovde */}
+        <div className="mt-12 pt-6 border-t border-slate-200 text-center pb-8">
+          <p className="text-sm text-slate-500">
+            Need help with the integration?{' '}
+            <a
+              href="mailto:support@automation.online"
+              className="font-medium text-cyan-600 hover:text-cyan-500 transition-colors"
+            >
+              Contact Support
+            </a>
+          </p>
+        </div>
+
       </div>
 
       {showDisconnectModal && (
