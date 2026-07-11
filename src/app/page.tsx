@@ -48,6 +48,19 @@ export default function Home() {
             <p className="text-xs text-slate-500">Automatically cross-reference workspaces, user rates, and system currencies configuration.</p>
           </div>
         </div>
+
+        {/* Support Contact Link */}
+        <div className="max-w-3xl mx-auto mt-12 pt-6 border-t border-slate-200 text-center">
+          <p className="text-sm text-slate-500">
+            Need help with the integration?{' '}
+            <a
+              href="mailto:support@automation.online"
+              className="font-medium text-cyan-600 hover:text-cyan-500 transition-colors"
+            >
+              Contact Support
+            </a>
+          </p>
+        </div>
       </main>
 
       {/* Footer */}
