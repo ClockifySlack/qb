@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.5.1",
   "key": "clockify-quickbooks-bridge",
-  "name": "QuickBooks Payroll Bridge",
+  "name": "Payroll Bridge for QuickBooks",
   "description": "Automatically send and synchronize invoices directly to your QuickBooks account.",
   "baseUrl": "https://app.automaticon.online",
   "minimalSubscriptionPlan": "STANDARD",
