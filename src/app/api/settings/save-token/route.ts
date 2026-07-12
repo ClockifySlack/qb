@@ -9,17 +9,36 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const { token } = await request.json();
-    const realmId = "9341457104211536";
+    const body = await request.json();
+    const { token } = body;
+    
+    // 1. Pokušavamo da izvučemo realmId iz JSON body-ja (ako ga frontend šalje)
+    // 2. Ako ga nema u body-ju, pokušavamo da ga izvučemo iz HTTP kolačića (gde se obično čuva nakon OAuth logina)
+    const realmId = body.realmId 
+      || request.cookies.get('realmId')?.value 
+      || request.cookies.get('qb_realm_id')?.value;
+
+    if (!realmId) {
+      console.error("🚨 Nedostaje realmId! Nije moguće povezati Clockify token sa QuickBooks nalogom.");
+      return NextResponse.json({ error: "Missing realmId. Cannot link token." }, { status: 400 });
+    }
 
     if (token) {
-      await supabase
+      const { error } = await supabase
         .from('qb_connections')
         .update({ clockify_token: token })
         .eq('realm_id', realmId);
+
+      if (error) {
+        console.error("❌ Supabase greška pri ažuriranju tokena:", error);
+        throw error;
+      }
     }
+
     return NextResponse.json({ success: true });
-  } catch (error) {
+
+  } catch (error: any) {
+    console.error("🚨 Greška u save-token ruti:", error.message || error);
     return NextResponse.json({ error: "Greška pri čuvanju tokena" }, { status: 500 });
   }
 }
