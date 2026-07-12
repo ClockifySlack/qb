@@ -54,7 +54,7 @@ export default function Home() {
           <p className="text-sm text-slate-500">
             Need help with the integration?{' '}
             <a
-              href="mailto:support@automation.online"
+              href="mailto:support@automaticon.online"
               className="font-medium text-cyan-600 hover:text-cyan-500 transition-colors"
             >
               Contact Support
