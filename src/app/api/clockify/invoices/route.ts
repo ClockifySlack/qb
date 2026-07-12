@@ -52,16 +52,19 @@ export async function GET(request: NextRequest) {
     const syncedIds = new Set(syncedData?.map(row => row.clockify_invoice_id) || []);
 
     const formattedInvoices = invoiceList.map((inv: any) => {
-      const amountInCents = inv.amount || 0;
+      // Clockify uglavnom vraća iznos u 'total', a nekad u 'amount' ili 'balance'
+      const amountInCents = inv.total || inv.amount || inv.balance || 0;
       const amountInDollars = amountInCents / 100;
 
       return {
         id: inv.id || 'N/A',
         number: inv.number || 'N/A',
         client: inv.clientName || 'Nepoznat klijent',
-        amount: amountInDollars.toFixed(2),
+        // Ostavljamo kao broj jer tvoj frontend već radi Number(inv.amount).toFixed(2)
+        amount: amountInDollars, 
         date: inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : '-',
-        isSynced: syncedIds.has(inv.id) 
+        isSynced: syncedIds.has(inv.id),
+        status: inv.status // <--- OVO JE NEDOSTAJALO DA BI FRONTEND PREPOZNAO 'SENT' STATUS!
       };
     });
 
