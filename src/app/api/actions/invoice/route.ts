@@ -33,7 +33,6 @@ export async function POST(request: NextRequest) {
        }
     }
 
-    // Provera da li je faktura već poslata
     const invoiceStatus = dataObj.status;
     if (invoiceStatus === 'SENT') {
       return NextResponse.json(
@@ -50,7 +49,7 @@ export async function POST(request: NextRequest) {
     if (!invoiceId) throw new Error("Invoice ID not recognized in payload");
 
     // ====================================================================
-    // 1. EKSTRAKCIJA CLOCKIFY TOKENA
+    // 1. EKSTRAKCIJA I DEKODIRANJE TOKENA ZA WORKSPACE ID
     // ====================================================================
     let clockifyToken = request.headers.get('clockify-signature') || request.headers.get('x-addon-token');
     
@@ -67,23 +66,56 @@ export async function POST(request: NextRequest) {
       throw new Error("Missing Clockify token in request headers.");
     }
 
+    let workspaceId = dataObj.workspaceId;
+    let baseUrl = 'https://api.clockify.me/api';
+    
+    // Parsiramo JWT da dobijemo tačan workspaceId 
+    if (clockifyToken.includes('.')) {
+        try {
+            const payloadBase64 = clockifyToken.split('.')[1];
+            const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+            workspaceId = payload.workspaceId || payload.workspace_id || workspaceId;
+            baseUrl = payload.backendUrl || baseUrl;
+        } catch (e) {
+            console.error("Greška pri dekodiranju JWT-a:", e);
+        }
+    }
+
+    if (!workspaceId) {
+        throw new Error("Ne mogu da izvučem workspaceId iz payload-a. Apsolutno neophodno za nastavak.");
+    }
+
     // ====================================================================
-    // 2. DINAMIČKO DOHVATANJE REALM ID-a IZ BAZE
+    // 2. NEPROBOJNI MOST DO REALM ID-a
     // ====================================================================
+    // Korak A: Nađi statički addon_token iz tabele clockify_tokens
+    const { data: tokenData, error: tokenErr } = await supabase
+      .from('clockify_tokens')
+      .select('addon_token')
+      .eq('workspace_id', workspaceId)
+      .single();
+
+    if (tokenErr || !tokenData?.addon_token) {
+      throw new Error(`Nije pronađen statički addon_token u bazi za workspace: ${workspaceId}`);
+    }
+
+    const staticAddonToken = tokenData.addon_token;
+
+    // Korak B: Nađi QB konekciju koristeći taj statički token
     const { data: connectionRecord, error: connectionError } = await supabase
       .from('qb_connections')
       .select('realm_id')
-      .eq('clockify_token', clockifyToken)
+      .eq('clockify_token', staticAddonToken)
       .single();
 
     if (connectionError || !connectionRecord?.realm_id) {
-      throw new Error("QuickBooks is not connected for this Clockify account/token.");
+      throw new Error(`QuickBooks is not connected za statički token: ${staticAddonToken}`);
     }
 
     const realmId = connectionRecord.realm_id;
 
     // ====================================================================
-    // 3. PROVERA DUPLIKATA
+    // 3. PROVERA DUPLIKATA I SLANJE U QUICKBOOKS
     // ====================================================================
     const { data: existingSync } = await supabase
       .from('synced_invoices')
@@ -183,28 +215,19 @@ export async function POST(request: NextRequest) {
     // ====================================================================
     if (shouldMarkAsSent) {
       console.log("=== POČETAK CLOCKIFY API POZIVA (PATCH) ===");
-      console.log("1. KORISTIMO PRETHODNO PRONAĐEN TOKEN");
-
+      
       try {
-        const payloadBase64 = clockifyToken.split('.')[1];
-        const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-        
-        const workspaceId = payload.workspaceId || payload.workspace_id || dataObj.workspaceId;
-        const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
         const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-        
         const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}/status`;
         
         console.log("2. GAĐAMO URL:", apiUrl);
 
-        const patchPayload = {
-          invoiceStatus: "SENT"
-        };
+        const patchPayload = { invoiceStatus: "SENT" };
 
         const patchRes = await fetch(apiUrl, {
           method: 'PATCH',
           headers: {
-            'X-Addon-Token': clockifyToken,
+            'X-Addon-Token': clockifyToken, // Ovde možemo bezbedno da iskoristimo onaj JWT iz zaglavlja!
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
