@@ -20,8 +20,16 @@ export default function Settings() {
   const [currentPage, setCurrentPage] = useState(1);
   const invoicesPerPage = 20;
 
+  // ====================================================================
+  // IZMENJENO: Prosleđujemo auth_token ruti kako iframe ne bi zaboravio sesiju
+  // ====================================================================
   useEffect(() => {
-    fetch('/api/auth/status')
+    const urlParams = new URLSearchParams(window.location.search);
+    const authToken = urlParams.get('auth_token');
+    
+    const fetchUrl = authToken ? `/api/auth/status?auth_token=${authToken}` : '/api/auth/status';
+
+    fetch(fetchUrl)
       .then(res => res.json())
       .then(data => {
         if (data.isConnected) setIsConnected(true);
@@ -82,31 +90,25 @@ export default function Settings() {
     }
   }, [isConnected]);
 
-  // ====================================================================
-  // IZMENJENO: Funkcija sada dekodira token i dodaje workspaceId u URL!
-  // ====================================================================
   const openAuthPopup = () => {
     let workspaceId = '';
     const urlParams = new URLSearchParams(window.location.search);
     const authToken = urlParams.get('auth_token');
 
-    // Dekodiramo JWT kako bismo na frontendu odmah znali workspaceId
     if (authToken && authToken.includes('.')) {
       try {
         const payloadBase64 = authToken.split('.')[1];
-        const payload = JSON.parse(atob(payloadBase64)); // atob radi dekodiranje u browseru
+        const payload = JSON.parse(atob(payloadBase64)); 
         workspaceId = payload.workspaceId || payload.workspace_id || '';
       } catch (e) {
         console.error("Greška pri dekodiranju tokena:", e);
       }
     }
 
-    // Ako nismo uspeli da parsiramo, poslaćemo ceo token pa neka backend dešifruje
     if (!workspaceId && authToken) {
         workspaceId = authToken;
     }
 
-    // Dodajemo parametar na URL pre otvaranja prozora
     const authUrl = workspaceId ? `/api/auth/qb?workspaceId=${workspaceId}` : '/api/auth/qb';
 
     const width = 600, height = 700;
@@ -321,7 +323,6 @@ export default function Settings() {
           )}
         </div>
 
-        {/* Support Contact Link Ubačen Ovde */}
         <div className="mt-12 pt-6 border-t border-slate-200 text-center pb-8">
           <p className="text-sm text-slate-500">
             Need help with the integration?{' '}
