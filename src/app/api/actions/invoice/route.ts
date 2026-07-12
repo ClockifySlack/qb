@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!workspaceId) {
-        throw new Error("Ne mogu da izvučem workspaceId iz payload-a. Apsolutno neophodno za nastavak.");
+        throw new Error("Ne mogu da izvučem workspaceId iz payload-a.");
     }
 
     // ====================================================================
@@ -99,7 +99,6 @@ export async function POST(request: NextRequest) {
         
         if (invRes.ok) {
             fullInvoiceData = await invRes.json();
-            console.log("✅ Uspešno preuzeta puna faktura iz Clockify API-ja sa svim stavkama!");
         } else {
             console.warn("⚠️ Nisam uspeo da povučem punu fakturu, oslanjam se na podatke iz webhooka.");
         }
@@ -117,13 +116,13 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (connectionError || !connectionRecord?.realm_id) {
-      throw new Error(`QuickBooks is not connected za workspace: ${workspaceId}. Povežite nalog ponovo.`);
+      throw new Error(`QuickBooks is not connected za workspace: ${workspaceId}.`);
     }
 
     const realmId = connectionRecord.realm_id;
 
     // ====================================================================
-    // 4. PROVERA DUPLIKATA
+    // 4. PROVERA DUPLIKATA U BAZI
     // ====================================================================
     const { data: existingSync } = await supabase
       .from('synced_invoices')
@@ -186,28 +185,30 @@ export async function POST(request: NextRequest) {
     const shouldMarkAsSent = connectionData?.mark_as_sent !== false;
 
     // ====================================================================
-    // 5. DINAMIČKO MAPIRANJE STAVKI (LINE ITEMS)
+    // 5. STROGO MAPIRANJE STAVKI (LINE ITEMS) SA ZAOKRUŽIVANJEM
     // ====================================================================
     const rawItems = fullInvoiceData.items || dataObj.items || [];
     let qbLines = [];
 
     if (rawItems.length > 0) {
       qbLines = rawItems.map((item: any) => {
-        const qty = item.quantity != null ? item.quantity : 1;
-        
-        // Sve u payloadu je u centima
-        const unitPrice = (item.unitPrice || 0) / 100;
-        let lineAmount = (item.amount || 0) / 100;
+        // Forsiramo tačne brojeve kako bismo izbegli grešku u QB validaciji
+        const qty = Number((item.quantity != null ? item.quantity : 1).toFixed(2));
+        const unitPrice = Number(((item.unitPrice || item.price || item.rate || 0) / 100).toFixed(2));
+        let lineAmount = Number(((item.amount || item.total || item.subtotal || 0) / 100).toFixed(2));
         
         if (lineAmount === 0 && unitPrice > 0) {
-          lineAmount = qty * unitPrice;
+          lineAmount = Number((qty * unitPrice).toFixed(2));
         }
 
-        const description = item.description || "Service";
+        let description = item.description || item.notes || item.name || "Service";
+        if (typeof description !== 'string' || description.trim() === '') {
+          description = "Service";
+        }
 
         return {
           "Amount": lineAmount,
-          "Description": description,
+          "Description": description.substring(0, 4000), // QB max limit
           "DetailType": "SalesItemLineDetail",
           "SalesItemLineDetail": {
             "ItemRef": { "value": "1", "name": "Services" },
@@ -218,9 +219,8 @@ export async function POST(request: NextRequest) {
         };
       });
     } else {
-      // Zbirni fallback ako faktura nema stavke
       const amountInCents = fullInvoiceData.amount || fullInvoiceData.total || dataObj.amount || 0;
-      const amountInDollars = amountInCents / 100;
+      const amountInDollars = Number((amountInCents / 100).toFixed(2));
       
       qbLines = [{
         "Amount": amountInDollars >= 0 ? amountInDollars : 0,
@@ -242,9 +242,8 @@ export async function POST(request: NextRequest) {
     if (txnDate) qbInvoiceBody.TxnDate = txnDate;
     if (dueDate) qbInvoiceBody.DueDate = dueDate;
 
-    // Ako u Clockify fakturi postoji 'note', dodajemo ga u QuickBooks
-    if (fullInvoiceData.note) {
-      qbInvoiceBody.CustomerMemo = { "value": fullInvoiceData.note };
+    if (fullInvoiceData.note && typeof fullInvoiceData.note === 'string' && fullInvoiceData.note.trim() !== '') {
+      qbInvoiceBody.CustomerMemo = { "value": fullInvoiceData.note.substring(0, 1000) };
     }
 
     const qbResponse = await fetch(`https://quickbooks.api.intuit.com/v3/company/${realmId}/invoice?minorversion=65`, {
@@ -253,9 +252,22 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(qbInvoiceBody)
     });
 
+    // ====================================================================
+    // OTVARANJE GREŠKE U ČISTOM TEKSTU ZA VERCEL LOGOVE
+    // ====================================================================
     if (!qbResponse.ok) {
         const errorText = await qbResponse.text();
-        throw new Error(`QuickBooks API rejected the request: ${errorText}`);
+        console.error("🚨 SIROVI QUICKBOOKS ODGOVOR:", errorText); 
+        
+        let errMsg = "QuickBooks API rejected the request.";
+        try {
+            const parsed = JSON.parse(errorText);
+            if (parsed.Fault && parsed.Fault.Error && parsed.Fault.Error.length > 0) {
+                errMsg = `QuickBooks Error: ${parsed.Fault.Error[0].Detail || parsed.Fault.Error[0].Message}`;
+            }
+        } catch(e) {}
+        
+        throw new Error(errMsg);
     }
 
     const qbResult = await qbResponse.json();
@@ -268,16 +280,11 @@ export async function POST(request: NextRequest) {
     // 6. CLOCKIFY STATUS UPDATE (PATCH METHOD)
     // ====================================================================
     if (shouldMarkAsSent) {
-      console.log("=== POČETAK CLOCKIFY API POZIVA (PATCH) ===");
-      
       try {
         const patchApiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}/status`;
-        
-        console.log("2. GAĐAMO URL:", patchApiUrl);
-
         const patchPayload = { invoiceStatus: "SENT" };
 
-        const patchRes = await fetch(patchApiUrl, {
+        await fetch(patchApiUrl, {
           method: 'PATCH',
           headers: {
             'X-Addon-Token': clockifyToken,
@@ -286,20 +293,9 @@ export async function POST(request: NextRequest) {
           },
           body: JSON.stringify(patchPayload)
         });
-
-        console.log("3. PATCH STATUS:", patchRes.status);
-        
-        if (!patchRes.ok) {
-            const patchErr = await patchRes.text();
-            console.error("4. PATCH GREŠKA:", patchErr);
-        } else {
-            console.log("4. ✅ USPEH: Status fakture uspešno promenjen u SENT!");
-        }
       } catch (error: any) {
-        console.error("5. CATCH ERROR UNUTAR PATCH:", error.message);
+        console.error("CATCH ERROR UNUTAR PATCH:", error.message);
       }
-      
-      console.log("=== KRAJ CLOCKIFY API POZIVA ===");
     }
 
     return NextResponse.json({
@@ -308,7 +304,7 @@ export async function POST(request: NextRequest) {
     }, { status: 200, headers: corsHeaders });
 
   } catch (error: any) {
-    console.error("🚨 GLAVNA GREŠKA U SINHRONIZACIJI:", error);
+    console.error("🚨 GLAVNA GREŠKA U SINHRONIZACIJI:", error.message || error);
     
     return NextResponse.json({ 
       message: error.message || "An error occurred",
