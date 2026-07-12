@@ -69,7 +69,6 @@ export async function POST(request: NextRequest) {
     let workspaceId = dataObj.workspaceId;
     let baseUrl = 'https://api.clockify.me/api';
     
-    // Parsiramo JWT da dobijemo tačan workspaceId 
     if (clockifyToken.includes('.')) {
         try {
             const payloadBase64 = clockifyToken.split('.')[1];
@@ -86,30 +85,17 @@ export async function POST(request: NextRequest) {
     }
 
     // ====================================================================
-    // 2. NEPROBOJNI MOST DO REALM ID-a
+    // 2. DIREKTNO SPAJANJE SA QUICKBOOKS NALOGOM
     // ====================================================================
-    // Korak A: Nađi statički addon_token iz tabele clockify_tokens
-    const { data: tokenData, error: tokenErr } = await supabase
-      .from('clockify_tokens')
-      .select('addon_token')
-      .eq('workspace_id', workspaceId)
-      .single();
-
-    if (tokenErr || !tokenData?.addon_token) {
-      throw new Error(`Nije pronađen statički addon_token u bazi za workspace: ${workspaceId}`);
-    }
-
-    const staticAddonToken = tokenData.addon_token;
-
-    // Korak B: Nađi QB konekciju koristeći taj statički token
+    // Sada direktno tražimo workspaceId u koloni 'clockify_token'
     const { data: connectionRecord, error: connectionError } = await supabase
       .from('qb_connections')
       .select('realm_id')
-      .eq('clockify_token', staticAddonToken)
+      .eq('clockify_token', workspaceId)
       .single();
 
     if (connectionError || !connectionRecord?.realm_id) {
-      throw new Error(`QuickBooks is not connected za statički token: ${staticAddonToken}`);
+      throw new Error(`QuickBooks is not connected za workspace: ${workspaceId}. Povežite nalog ponovo.`);
     }
 
     const realmId = connectionRecord.realm_id;
@@ -227,7 +213,7 @@ export async function POST(request: NextRequest) {
         const patchRes = await fetch(apiUrl, {
           method: 'PATCH',
           headers: {
-            'X-Addon-Token': clockifyToken, // Ovde možemo bezbedno da iskoristimo onaj JWT iz zaglavlja!
+            'X-Addon-Token': clockifyToken,
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
