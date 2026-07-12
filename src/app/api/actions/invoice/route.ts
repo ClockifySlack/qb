@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
        }
     }
 
-    // Provera da li je faktura već poslata, kako bismo okinuli Toast notifikaciju u Clockify-ju.
+    // Provera da li je faktura već poslata
     const invoiceStatus = dataObj.status;
     if (invoiceStatus === 'SENT') {
       return NextResponse.json(
@@ -46,14 +46,45 @@ export async function POST(request: NextRequest) {
     const invoiceNumber = dataObj.number || "INV-ACTION";
     const amountInCents = dataObj.total || dataObj.amount || dataObj.balance || 0;
     const amountInDollars = amountInCents / 100;
-    
-    // 🚨 PAŽNJA: OVO MORA DA BUDE DINAMIČNO ZA PRODUKCIJU! 🚨
-    // Ne sme ostati hardkodovano, inače će Intuit odbiti zahtev jer ovaj Realm ID ne postoji na produkciji.
-    // Trebalo bi da ga vučeš iz baze na osnovu Clockify Workspace ID-a.
-    const realmId = "9341457104211536"; 
 
     if (!invoiceId) throw new Error("Invoice ID not recognized in payload");
 
+    // ====================================================================
+    // 1. EKSTRAKCIJA CLOCKIFY TOKENA
+    // ====================================================================
+    let clockifyToken = request.headers.get('clockify-signature') || request.headers.get('x-addon-token');
+    
+    if (!clockifyToken) {
+      const authHeader = request.headers.get('authorization');
+      if (authHeader) {
+        clockifyToken = authHeader.toLowerCase().startsWith('bearer ') 
+          ? authHeader.substring(7).trim() 
+          : authHeader.trim();
+      }
+    }
+
+    if (!clockifyToken) {
+      throw new Error("Missing Clockify token in request headers.");
+    }
+
+    // ====================================================================
+    // 2. DINAMIČKO DOHVATANJE REALM ID-a IZ BAZE
+    // ====================================================================
+    const { data: connectionRecord, error: connectionError } = await supabase
+      .from('qb_connections')
+      .select('realm_id')
+      .eq('clockify_token', clockifyToken)
+      .single();
+
+    if (connectionError || !connectionRecord?.realm_id) {
+      throw new Error("QuickBooks is not connected for this Clockify account/token.");
+    }
+
+    const realmId = connectionRecord.realm_id;
+
+    // ====================================================================
+    // 3. PROVERA DUPLIKATA
+    // ====================================================================
     const { data: existingSync } = await supabase
       .from('synced_invoices')
       .select('*')
@@ -73,7 +104,6 @@ export async function POST(request: NextRequest) {
 
     if (clientName !== "Unknown Client") {
       const safeClientName = clientName.replace(/'/g, "''");
-      // PROMENJENO: URL sada gađa produkcioni Intuit API
       const queryUrl = `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${encodeURIComponent(`select * from Customer where DisplayName = '${safeClientName}'`)}&minorversion=65`;
       
       const queryRes = await fetch(queryUrl, {
@@ -85,7 +115,6 @@ export async function POST(request: NextRequest) {
         if (queryData.QueryResponse && queryData.QueryResponse.Customer && queryData.QueryResponse.Customer.length > 0) {
           qbCustomerId = queryData.QueryResponse.Customer[0].Id;
         } else {
-          // PROMENJENO: URL sada gađa produkcioni Intuit API
           const createRes = await fetch(`https://quickbooks.api.intuit.com/v3/company/${realmId}/customer?minorversion=65`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${qbAccessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
@@ -132,7 +161,6 @@ export async function POST(request: NextRequest) {
     if (txnDate) qbInvoiceBody.TxnDate = txnDate;
     if (dueDate) qbInvoiceBody.DueDate = dueDate;
 
-    // PROMENJENO: URL sada gađa produkcioni Intuit API
     const qbResponse = await fetch(`https://quickbooks.api.intuit.com/v3/company/${realmId}/invoice?minorversion=65`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${qbAccessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
@@ -151,65 +179,50 @@ export async function POST(request: NextRequest) {
       .insert({ clockify_invoice_id: invoiceId, qb_invoice_id: qbResult.Invoice.Id });
 
     // ====================================================================
-    // CLOCKIFY STATUS UPDATE (PATCH METHOD)
+    // 4. CLOCKIFY STATUS UPDATE (PATCH METHOD)
     // ====================================================================
     if (shouldMarkAsSent) {
       console.log("=== POČETAK CLOCKIFY API POZIVA (PATCH) ===");
+      console.log("1. KORISTIMO PRETHODNO PRONAĐEN TOKEN");
 
-      let clockifyToken = request.headers.get('clockify-signature') || request.headers.get('x-addon-token');
+      try {
+        const payloadBase64 = clockifyToken.split('.')[1];
+        const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+        
+        const workspaceId = payload.workspaceId || payload.workspace_id || dataObj.workspaceId;
+        const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
+        const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        
+        const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}/status`;
+        
+        console.log("2. GAĐAMO URL:", apiUrl);
+
+        const patchPayload = {
+          invoiceStatus: "SENT"
+        };
+
+        const patchRes = await fetch(apiUrl, {
+          method: 'PATCH',
+          headers: {
+            'X-Addon-Token': clockifyToken,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(patchPayload)
+        });
+
+        console.log("3. PATCH STATUS:", patchRes.status);
+        
+        if (!patchRes.ok) {
+            const patchErr = await patchRes.text();
+            console.error("4. PATCH GREŠKA:", patchErr);
+        } else {
+            console.log("4. ✅ USPEH: Status fakture uspešno promenjen u SENT!");
+        }
+      } catch (error: any) {
+        console.error("5. CATCH ERROR UNUTAR PATCH:", error.message);
+      }
       
-      if (!clockifyToken) {
-        const authHeader = request.headers.get('authorization');
-        if (authHeader) {
-          clockifyToken = authHeader.toLowerCase().startsWith('bearer ') 
-            ? authHeader.substring(7).trim() 
-            : authHeader.trim();
-        }
-      }
-
-      console.log("1. PRONAĐEN TOKEN:", clockifyToken ? "DA" : "NE");
-
-      if (clockifyToken) {
-        try {
-          const payloadBase64 = clockifyToken.split('.')[1];
-          const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-          
-          const workspaceId = payload.workspaceId || payload.workspace_id || dataObj.workspaceId;
-          const baseUrl = payload.backendUrl || 'https://api.clockify.me/api';
-          const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-          
-          const apiUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}/status`;
-          
-          console.log("2. GAĐAMO URL:", apiUrl);
-
-          const patchPayload = {
-            invoiceStatus: "SENT"
-          };
-
-          const patchRes = await fetch(apiUrl, {
-            method: 'PATCH',
-            headers: {
-              'X-Addon-Token': clockifyToken,
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            body: JSON.stringify(patchPayload)
-          });
-
-          console.log("3. PATCH STATUS:", patchRes.status);
-          
-          if (!patchRes.ok) {
-              const patchErr = await patchRes.text();
-              console.error("4. PATCH GREŠKA:", patchErr);
-          } else {
-              console.log("4. ✅ USPEH: Status fakture uspešno promenjen u SENT!");
-          }
-        } catch (error: any) {
-          console.error("5. CATCH ERROR:", error.message);
-        }
-      } else {
-          console.error("5. TOKEN NIJE PRONAĐEN U ZAGLAVLJU!");
-      }
       console.log("=== KRAJ CLOCKIFY API POZIVA ===");
     }
 
@@ -219,7 +232,6 @@ export async function POST(request: NextRequest) {
     }, { status: 200, headers: corsHeaders });
 
   } catch (error: any) {
-    // DODATO: Nateraj Vercel da ispiše tačnu grešku u logove!
     console.error("🚨 GLAVNA GREŠKA U SINHRONIZACIJI:", error);
     
     return NextResponse.json({ 
