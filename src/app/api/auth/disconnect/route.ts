@@ -10,7 +10,18 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const realmId = "9341457104211536"; // Zakucan za MVP
+    // Čitamo body, ali koristimo catch u slučaju da frontend pošalje prazan POST zahtev
+    const body = await request.json().catch(() => ({}));
+    
+    // Dinamičko preuzimanje realmId-ja iz body-ja ili kolačića
+    const realmId = body.realmId 
+      || request.cookies.get('realmId')?.value 
+      || request.cookies.get('qb_realm_id')?.value;
+
+    if (!realmId) {
+      console.error("🚨 Nedostaje realmId u zahtevu! Nije moguće diskonektovati nalog.");
+      return NextResponse.json({ error: "Missing realmId. Cannot disconnect." }, { status: 400 });
+    }
 
     const { data: connection } = await supabase
       .from('qb_connections')
@@ -21,7 +32,11 @@ export async function POST(request: NextRequest) {
     const refreshToken = connection?.refresh_token;
 
     if (refreshToken) {
-      const authString = Buffer.from(`${process.env.QB_CLIENT_ID}:${process.env.QB_CLIENT_SECRET}`).toString('base64');
+      // Hvata ID i Secret, bilo da si ih nazvao QB_ ili QUICKBOOKS_ u Vercel postavkama
+      const clientId = process.env.QUICKBOOKS_CLIENT_ID || process.env.QB_CLIENT_ID;
+      const clientSecret = process.env.QUICKBOOKS_CLIENT_SECRET || process.env.QB_CLIENT_SECRET;
+      
+      const authString = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
       
       const revokeResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/revoke', {
         method: 'POST',
@@ -33,17 +48,25 @@ export async function POST(request: NextRequest) {
       });
 
       if (!revokeResponse.ok) {
-        console.error("QuickBooks Revoke API error:", await revokeResponse.text());
+        console.error("❌ QuickBooks Revoke API error:", await revokeResponse.text());
+      } else {
+        console.log("✅ QuickBooks token successfully revoked for realmId:", realmId);
       }
     }
 
-    await supabase
+    const { error: deleteError } = await supabase
       .from('qb_connections')
       .delete()
       .eq('realm_id', realmId);
 
+    if (deleteError) {
+      console.error("❌ Supabase greška pri brisanju konekcije:", deleteError);
+      throw deleteError;
+    }
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    console.error("🚨 Greška u disconnect ruti:", error.message || error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
