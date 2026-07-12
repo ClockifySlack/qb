@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ====================================================================
-    // 2. PREUZIMANJE CELE FAKTURE IZ CLOCKIFY-JA (DA DOBIJEMO ITEMS I NOTE)
+    // 2. PREUZIMANJE CELE FAKTURE IZ CLOCKIFY-JA
     // ====================================================================
     const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
     const fetchInvoiceUrl = `${cleanBaseUrl.replace(/\/api$/, '')}/api/v1/workspaces/${workspaceId}/invoices/${invoiceId}`;
@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
     const realmId = connectionRecord.realm_id;
 
     // ====================================================================
-    // 4. PROVERA DUPLIKATA U BAZI
+    // 4. PROVERA DUPLIKATA
     // ====================================================================
     const { data: existingSync } = await supabase
       .from('synced_invoices')
@@ -192,14 +192,21 @@ export async function POST(request: NextRequest) {
 
     if (rawItems.length > 0) {
       qbLines = rawItems.map((item: any) => {
-        // Forsiramo tačne brojeve kako bismo izbegli grešku u QB validaciji
-        const qty = Number((item.quantity != null ? item.quantity : 1).toFixed(2));
-        const unitPrice = Number(((item.unitPrice || item.price || item.rate || 0) / 100).toFixed(2));
-        let lineAmount = Number(((item.amount || item.total || item.subtotal || 0) / 100).toFixed(2));
+        let qty = item.quantity != null ? Number(item.quantity) : 1;
         
-        if (lineAmount === 0 && unitPrice > 0) {
-          lineAmount = Number((qty * unitPrice).toFixed(2));
+        let unitPrice = item.unitPrice != null ? (Number(item.unitPrice) / 100) : 0;
+        let clockifyAmount = item.amount != null ? (Number(item.amount) / 100) : 0;
+        
+        if (unitPrice === 0 && clockifyAmount > 0) {
+          unitPrice = clockifyAmount / qty;
         }
+
+        // Fiksiramo brojeve na sigurne dužine pre množenja
+        qty = Number(qty.toFixed(4));
+        unitPrice = Number(unitPrice.toFixed(4));
+
+        // 🔥 OVO REŠAVA PROBLEM: Nasilno računamo količina * cena i sečemo tačno na dve decimale
+        const lineAmount = Number((qty * unitPrice).toFixed(2));
 
         let description = item.description || item.notes || item.name || "Service";
         if (typeof description !== 'string' || description.trim() === '') {
@@ -208,7 +215,7 @@ export async function POST(request: NextRequest) {
 
         return {
           "Amount": lineAmount,
-          "Description": description.substring(0, 4000), // QB max limit
+          "Description": description.substring(0, 4000),
           "DetailType": "SalesItemLineDetail",
           "SalesItemLineDetail": {
             "ItemRef": { "value": "1", "name": "Services" },
@@ -252,9 +259,6 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(qbInvoiceBody)
     });
 
-    // ====================================================================
-    // OTVARANJE GREŠKE U ČISTOM TEKSTU ZA VERCEL LOGOVE
-    // ====================================================================
     if (!qbResponse.ok) {
         const errorText = await qbResponse.text();
         console.error("🚨 SIROVI QUICKBOOKS ODGOVOR:", errorText); 
@@ -277,7 +281,7 @@ export async function POST(request: NextRequest) {
       .insert({ clockify_invoice_id: invoiceId, qb_invoice_id: qbResult.Invoice.Id });
 
     // ====================================================================
-    // 6. CLOCKIFY STATUS UPDATE (PATCH METHOD)
+    // 6. CLOCKIFY STATUS UPDATE
     // ====================================================================
     if (shouldMarkAsSent) {
       try {
