@@ -29,11 +29,11 @@ export async function POST(request: NextRequest) {
          (val: any) => val && typeof val === 'object' && val.id
        );
        if (nestedObject) {
-          dataObj = nestedObject;
+         dataObj = nestedObject;
        }
     }
 
-    // DODATO: Provera da li je faktura već poslata, kako bismo okinuli Toast notifikaciju u Clockify-ju.
+    // Provera da li je faktura već poslata, kako bismo okinuli Toast notifikaciju u Clockify-ju.
     const invoiceStatus = dataObj.status;
     if (invoiceStatus === 'SENT') {
       return NextResponse.json(
@@ -46,7 +46,11 @@ export async function POST(request: NextRequest) {
     const invoiceNumber = dataObj.number || "INV-ACTION";
     const amountInCents = dataObj.total || dataObj.amount || dataObj.balance || 0;
     const amountInDollars = amountInCents / 100;
-    const realmId = "9341457104211536";
+    
+    // 🚨 PAŽNJA: OVO MORA DA BUDE DINAMIČNO ZA PRODUKCIJU! 🚨
+    // Ne sme ostati hardkodovano, inače će Intuit odbiti zahtev jer ovaj Realm ID ne postoji na produkciji.
+    // Trebalo bi da ga vučeš iz baze na osnovu Clockify Workspace ID-a.
+    const realmId = "9341457104211536"; 
 
     if (!invoiceId) throw new Error("Invoice ID not recognized in payload");
 
@@ -69,7 +73,8 @@ export async function POST(request: NextRequest) {
 
     if (clientName !== "Unknown Client") {
       const safeClientName = clientName.replace(/'/g, "''");
-      const queryUrl = `https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${encodeURIComponent(`select * from Customer where DisplayName = '${safeClientName}'`)}&minorversion=65`;
+      // PROMENJENO: URL sada gađa produkcioni Intuit API
+      const queryUrl = `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${encodeURIComponent(`select * from Customer where DisplayName = '${safeClientName}'`)}&minorversion=65`;
       
       const queryRes = await fetch(queryUrl, {
         headers: { 'Authorization': `Bearer ${qbAccessToken}`, 'Accept': 'application/json' }
@@ -80,7 +85,8 @@ export async function POST(request: NextRequest) {
         if (queryData.QueryResponse && queryData.QueryResponse.Customer && queryData.QueryResponse.Customer.length > 0) {
           qbCustomerId = queryData.QueryResponse.Customer[0].Id;
         } else {
-          const createRes = await fetch(`https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/customer?minorversion=65`, {
+          // PROMENJENO: URL sada gađa produkcioni Intuit API
+          const createRes = await fetch(`https://quickbooks.api.intuit.com/v3/company/${realmId}/customer?minorversion=65`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${qbAccessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify({ DisplayName: clientName })
@@ -126,13 +132,17 @@ export async function POST(request: NextRequest) {
     if (txnDate) qbInvoiceBody.TxnDate = txnDate;
     if (dueDate) qbInvoiceBody.DueDate = dueDate;
 
-    const qbResponse = await fetch(`https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/invoice?minorversion=65`, {
+    // PROMENJENO: URL sada gađa produkcioni Intuit API
+    const qbResponse = await fetch(`https://quickbooks.api.intuit.com/v3/company/${realmId}/invoice?minorversion=65`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${qbAccessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(qbInvoiceBody)
     });
 
-    if (!qbResponse.ok) throw new Error("QuickBooks API rejected the request to create the invoice");
+    if (!qbResponse.ok) {
+        const errorText = await qbResponse.text();
+        throw new Error(`QuickBooks API rejected the request: ${errorText}`);
+    }
 
     const qbResult = await qbResponse.json();
 
@@ -209,6 +219,9 @@ export async function POST(request: NextRequest) {
     }, { status: 200, headers: corsHeaders });
 
   } catch (error: any) {
+    // DODATO: Nateraj Vercel da ispiše tačnu grešku u logove!
+    console.error("🚨 GLAVNA GREŠKA U SINHRONIZACIJI:", error);
+    
     return NextResponse.json({ 
       message: error.message || "An error occurred",
       type: "ERROR" 
