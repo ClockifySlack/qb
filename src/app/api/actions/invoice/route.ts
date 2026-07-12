@@ -192,20 +192,29 @@ export async function POST(request: NextRequest) {
 
     if (rawItems.length > 0) {
       qbLines = rawItems.map((item: any) => {
-        let qty = item.quantity != null ? Number(item.quantity) : 1;
-        
         let unitPrice = item.unitPrice != null ? (Number(item.unitPrice) / 100) : 0;
         let clockifyAmount = item.amount != null ? (Number(item.amount) / 100) : 0;
         
-        if (unitPrice === 0 && clockifyAmount > 0) {
-          unitPrice = clockifyAmount / qty;
+        let qty = 1;
+
+        // OBRNUTA MATEMATIKA: 
+        // Pošto Clockify API nekad množi quantity sa 100, mi ga ne uzimamo iz objekta.
+        // Računamo ga strogo koristeći cenu i iznos, koji uvek stižu ispravno.
+        if (unitPrice > 0 && clockifyAmount > 0) {
+            qty = clockifyAmount / unitPrice;
+        } else if (unitPrice === 0 && clockifyAmount > 0) {
+            qty = 1;
+            unitPrice = clockifyAmount;
+        } else if (clockifyAmount === 0) {
+            // Samo ako je iznos 0 vraćamo se na Clockify-jev quantity
+            qty = item.quantity != null ? Number(item.quantity) : 1;
+            if (qty >= 100 && qty % 100 === 0) {
+                qty = qty / 100;
+            }
         }
 
-        // Fiksiramo brojeve na sigurne dužine pre množenja
         qty = Number(qty.toFixed(4));
         unitPrice = Number(unitPrice.toFixed(4));
-
-        // 🔥 OVO REŠAVA PROBLEM: Nasilno računamo količina * cena i sečemo tačno na dve decimale
         const lineAmount = Number((qty * unitPrice).toFixed(2));
 
         let description = item.description || item.notes || item.name || "Service";
