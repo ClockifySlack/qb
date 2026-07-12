@@ -43,9 +43,7 @@ export async function POST(request: NextRequest) {
 
     const invoiceId = dataObj.id;
     const invoiceNumber = dataObj.number || "INV-ACTION";
-    const amountInCents = dataObj.total || dataObj.amount || dataObj.balance || 0;
-    const amountInDollars = amountInCents / 100;
-
+    
     if (!invoiceId) throw new Error("Invoice ID not recognized in payload");
 
     // ====================================================================
@@ -87,7 +85,6 @@ export async function POST(request: NextRequest) {
     // ====================================================================
     // 2. DIREKTNO SPAJANJE SA QUICKBOOKS NALOGOM
     // ====================================================================
-    // Sada direktno tražimo workspaceId u koloni 'clockify_token'
     const { data: connectionRecord, error: connectionError } = await supabase
       .from('qb_connections')
       .select('realm_id')
@@ -163,15 +160,57 @@ export async function POST(request: NextRequest) {
     const shouldApplyTax = connectionData?.apply_tax !== false;
     const shouldMarkAsSent = connectionData?.mark_as_sent !== false;
 
-    const salesItemLineDetail: any = { "ItemRef": { "value": "1", "name": "Services" } };
-    salesItemLineDetail["TaxCodeRef"] = { "value": shouldApplyTax ? "TAX" : "NON" };
+    // ====================================================================
+    // 🚀 NOVO: DINAMIČKO MAPIRANJE STAVKI (LINE ITEMS)
+    // ====================================================================
+    const rawItems = dataObj.items || dataObj.invoiceItems || [];
+    let qbLines = [];
+
+    if (rawItems.length > 0) {
+      qbLines = rawItems.map((item: any) => {
+        const qty = item.quantity != null ? item.quantity : 1;
+        
+        // Clockify vrednosti često dolaze u centima
+        const unitPrice = (item.unitPrice || item.price || item.rate || 0) / 100;
+        let lineAmount = (item.total || item.amount || item.subtotal || 0) / 100;
+        
+        // Fallback: Ako fali ukupan iznos na liniji, pomnoži količinu i cenu
+        if (lineAmount === 0 && unitPrice > 0) {
+          lineAmount = qty * unitPrice;
+        }
+
+        const description = item.description || item.notes || "Service";
+
+        return {
+          "Amount": lineAmount,
+          "Description": description,
+          "DetailType": "SalesItemLineDetail",
+          "SalesItemLineDetail": {
+            "ItemRef": { "value": "1", "name": "Services" },
+            "TaxCodeRef": { "value": shouldApplyTax ? "TAX" : "NON" },
+            "UnitPrice": unitPrice,
+            "Qty": qty
+          }
+        };
+      });
+    } else {
+      // Fallback ako nekim čudom nema stavki (pravimo jednu generičku liniju od totala)
+      const amountInCents = dataObj.total || dataObj.amount || dataObj.balance || 0;
+      const amountInDollars = amountInCents / 100;
+      
+      qbLines = [{
+        "Amount": amountInDollars >= 0 ? amountInDollars : 0,
+        "Description": "Services",
+        "DetailType": "SalesItemLineDetail",
+        "SalesItemLineDetail": {
+            "ItemRef": { "value": "1", "name": "Services" },
+            "TaxCodeRef": { "value": shouldApplyTax ? "TAX" : "NON" }
+        }
+      }];
+    }
 
     const qbInvoiceBody: any = {
-      "Line": [{
-        "Amount": amountInDollars >= 0 ? amountInDollars : 0,
-        "DetailType": "SalesItemLineDetail",
-        "SalesItemLineDetail": salesItemLineDetail
-      }],
+      "Line": qbLines,
       "CustomerRef": { "value": qbCustomerId },
       "DocNumber": invoiceNumber
     };
