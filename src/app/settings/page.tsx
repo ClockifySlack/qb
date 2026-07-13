@@ -21,7 +21,7 @@ export default function Settings() {
   const invoicesPerPage = 20;
 
   // ====================================================================
-  // IZMENJENO: Prosleđujemo auth_token ruti kako iframe ne bi zaboravio sesiju
+  // Provera statusa konekcije
   // ====================================================================
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -48,9 +48,16 @@ export default function Settings() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
+  // ====================================================================
+  // Povlačenje podešavanja (Preferences) sa tokenom
+  // ====================================================================
   useEffect(() => {
     if (isConnected) {
-      fetch('/api/settings/preferences')
+      const urlParams = new URLSearchParams(window.location.search);
+      const authToken = urlParams.get('auth_token');
+      const fetchUrl = authToken ? `/api/settings/preferences?auth_token=${authToken}` : '/api/settings/preferences';
+
+      fetch(fetchUrl)
         .then(res => res.json())
         .then(data => {
           setApplyTax(data.applyTax);
@@ -60,6 +67,9 @@ export default function Settings() {
     }
   }, [isConnected]);
 
+  // ====================================================================
+  // Povlačenje istorije faktura
+  // ====================================================================
   useEffect(() => {
     if (isConnected) {
       setIsLoadingInvoices(true);
@@ -120,14 +130,27 @@ export default function Settings() {
     setShowDisconnectModal(true);
   };
 
+  // ====================================================================
+  // Diskonektovanje uz slanje tokena
+  // ====================================================================
   const confirmDisconnect = async () => {
     setIsDisconnecting(true);
     try {
-      const response = await fetch('/api/auth/disconnect', { method: 'POST' });
+      const urlParams = new URLSearchParams(window.location.search);
+      const authToken = urlParams.get('auth_token');
+
+      const response = await fetch('/api/auth/disconnect', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_token: authToken })
+      });
+      
       if (response.ok) {
         setIsConnected(false);
         setSyncedInvoices([]);
         setShowDisconnectModal(false);
+      } else {
+        console.error("Greška pri diskonektovanju na serveru.");
       }
     } catch (err) {
       console.error("Failed to disconnect:", err);
@@ -136,29 +159,41 @@ export default function Settings() {
     }
   };
 
+  // ====================================================================
+  // Čuvanje Tax podešavanja uz token
+  // ====================================================================
   const handleTaxToggle = async () => {
     const newValue = !applyTax;
     setApplyTax(newValue);
     setIsUpdatingTax(true);
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const authToken = urlParams.get('auth_token');
+
       await fetch('/api/settings/preferences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ applyTax: newValue })
+        body: JSON.stringify({ applyTax: newValue, auth_token: authToken })
       });
     } catch (err) { setApplyTax(!newValue); } 
     finally { setIsUpdatingTax(false); }
   };
 
+  // ====================================================================
+  // Čuvanje Sent status podešavanja uz token
+  // ====================================================================
   const handleSentToggle = async () => {
     const newValue = !markAsSent;
     setMarkAsSent(newValue);
     setIsUpdatingSent(true);
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const authToken = urlParams.get('auth_token');
+
       await fetch('/api/settings/preferences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markAsSent: newValue })
+        body: JSON.stringify({ markAsSent: newValue, auth_token: authToken })
       });
     } catch (err) { setMarkAsSent(!newValue); } 
     finally { setIsUpdatingSent(false); }
